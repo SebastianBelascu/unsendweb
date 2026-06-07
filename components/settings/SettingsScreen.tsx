@@ -1,0 +1,523 @@
+"use client";
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { format } from "date-fns";
+import {
+  Check,
+  LifeBuoy,
+  Loader2,
+  LogOut,
+  Monitor,
+  Share2,
+  ShieldCheck,
+  Trash2,
+} from "lucide-react";
+
+const SHARE_TEXT =
+  "unsend is the future of communication. unlock your email experience & communicate with the people you love, send work emails all from one app. download now: https://apps.apple.com/eg/app/unsend-app/id6502881627";
+const SUPPORT_ADDRESS = "support@unsend.app";
+import { Avatar } from "@/components/mail/Avatar";
+import { cn } from "@/lib/utils";
+import { logout, type SessionUser } from "@/lib/api/auth";
+import {
+  useChangePassword,
+  useDeviceActions,
+  useDevices,
+  usePrivacy,
+  useSession,
+  useUpdatePrivacy,
+  useUpdateProfile,
+  type ProfileUpdate,
+} from "@/lib/api/account";
+
+function Section({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-xl border border-line bg-surface/40 p-5">
+      <h2 className="text-[15px] font-bold text-ink-strong">{title}</h2>
+      {description && (
+        <p className="mt-0.5 text-[13px] text-faint">{description}</p>
+      )}
+      <div className="mt-4">{children}</div>
+    </section>
+  );
+}
+
+const inputCls =
+  "h-[42px] w-full rounded-lg border border-line-strong bg-canvas px-3 text-[15px] text-ink-strong outline-none placeholder:text-faint focus:border-muted";
+
+function Toggle({
+  checked,
+  onChange,
+  disabled,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={cn(
+        "relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50",
+        checked ? "bg-email" : "bg-surface-3",
+      )}
+      aria-pressed={checked}
+    >
+      <span
+        className={cn(
+          "absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform",
+          checked ? "translate-x-5" : "translate-x-0.5",
+        )}
+      />
+    </button>
+  );
+}
+
+function ProfileSection({ user }: { user: SessionUser | null }) {
+  const update = useUpdateProfile();
+  const name = `${user?.firstName ?? ""} ${user?.lastName ?? ""}`.trim() ||
+    user?.username ||
+    "You";
+
+  function onSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    const get = (k: string) => String(fd.get(k) ?? "").trim() || undefined;
+    const dto: ProfileUpdate = {
+      firstName: get("firstName"),
+      lastName: get("lastName"),
+      birthDate: get("birthDate"),
+    };
+    update.mutate(dto);
+  }
+
+  return (
+    <Section title="Profile">
+      <div className="mb-5 flex items-center gap-4">
+        <Avatar
+          name={name}
+          seed={user?.username ? `${user.username}@unsend.app` : name}
+          isEmail={false}
+          size={64}
+          showBadge={false}
+        />
+        <div className="min-w-0">
+          <div className="truncate text-[16px] font-semibold text-ink-strong">
+            {name}
+          </div>
+          <div className="truncate text-[13px] text-faint">
+            @{user?.username}
+            {user?.phone ? ` · ${user.phone}` : ""}
+          </div>
+        </div>
+      </div>
+
+      <form onSubmit={onSubmit} className="flex flex-col gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <label className="block">
+            <span className="mb-1 block text-[13px] text-muted">First name</span>
+            <input
+              name="firstName"
+              defaultValue={user?.firstName ?? ""}
+              className={inputCls}
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-[13px] text-muted">Last name</span>
+            <input
+              name="lastName"
+              defaultValue={user?.lastName ?? ""}
+              className={inputCls}
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-[13px] text-muted">Birth date</span>
+            <input
+              name="birthDate"
+              type="date"
+              defaultValue={user?.birthDate ? user.birthDate.slice(0, 10) : ""}
+              className={inputCls}
+            />
+          </label>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <button
+            type="submit"
+            disabled={update.isPending}
+            className="flex items-center gap-2 rounded-full bg-accent px-5 py-2 text-[14px] font-semibold text-white transition-opacity disabled:opacity-50"
+          >
+            {update.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : null}
+            Save
+          </button>
+          {update.isSuccess && (
+            <span className="flex items-center gap-1 text-[13px] text-email">
+              <Check className="h-4 w-4" /> Saved
+            </span>
+          )}
+          {update.isError && (
+            <span className="text-[13px] text-accent">Couldn&apos;t save.</span>
+          )}
+        </div>
+      </form>
+    </Section>
+  );
+}
+
+function PrivacySection() {
+  const { data: priv } = usePrivacy();
+  const update = useUpdatePrivacy();
+  const [onlineLocal, setOnlineLocal] = useState<boolean | null>(null);
+  const [lastSeenLocal, setLastSeenLocal] = useState<boolean | null>(null);
+  const online = onlineLocal ?? priv?.showOnlineStatus ?? true;
+  const lastSeen = lastSeenLocal ?? priv?.showLastSeen ?? true;
+
+  function apply(r?: { showOnlineStatus: boolean; showLastSeen: boolean }) {
+    if (r) {
+      setOnlineLocal(r.showOnlineStatus);
+      setLastSeenLocal(r.showLastSeen);
+    }
+  }
+  function setOnlineStatus(v: boolean) {
+    setOnlineLocal(v);
+    update.mutate(
+      { showOnlineStatus: v },
+      { onSuccess: apply, onError: () => setOnlineLocal(!v) },
+    );
+  }
+  function setLastSeenStatus(v: boolean) {
+    setLastSeenLocal(v);
+    update.mutate(
+      { showLastSeen: v },
+      { onSuccess: apply, onError: () => setLastSeenLocal(!v) },
+    );
+  }
+
+  return (
+    <Section
+      title="Privacy"
+      description="Symmetric: hiding your online status also hides others' from you."
+    >
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <div className="text-[14px] text-ink">Show online status</div>
+            <div className="text-[12px] text-faint">
+              Let others see when you&apos;re active.
+            </div>
+          </div>
+          <Toggle checked={online} onChange={setOnlineStatus} />
+        </div>
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <div className="text-[14px] text-ink">Show last seen</div>
+            <div className="text-[12px] text-faint">
+              Let others see your last-active time.
+            </div>
+          </div>
+          <Toggle
+            checked={lastSeen}
+            onChange={setLastSeenStatus}
+            disabled={!online}
+          />
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+function PasswordSection() {
+  const change = useChangePassword();
+  const [oldPassword, setOld] = useState("");
+  const [newPassword, setNew] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    if (newPassword.length < 8) {
+      setError("New password must be at least 8 characters.");
+      return;
+    }
+    if (newPassword !== confirm) {
+      setError("Passwords don't match.");
+      return;
+    }
+    change.mutate(
+      { oldPassword, newPassword },
+      {
+        onSuccess: () => {
+          setOld("");
+          setNew("");
+          setConfirm("");
+        },
+        onError: () => setError("Couldn't change password. Check your current one."),
+      },
+    );
+  }
+
+  return (
+    <Section title="Password">
+      <form onSubmit={onSubmit} className="flex max-w-sm flex-col gap-3">
+        <input
+          type="password"
+          value={oldPassword}
+          onChange={(e) => setOld(e.target.value)}
+          placeholder="Current password"
+          autoComplete="current-password"
+          className={inputCls}
+        />
+        <input
+          type="password"
+          value={newPassword}
+          onChange={(e) => setNew(e.target.value)}
+          placeholder="New password"
+          autoComplete="new-password"
+          className={inputCls}
+        />
+        <input
+          type="password"
+          value={confirm}
+          onChange={(e) => setConfirm(e.target.value)}
+          placeholder="Confirm new password"
+          autoComplete="new-password"
+          className={inputCls}
+        />
+        {error && <span className="text-[13px] text-accent">{error}</span>}
+        <div className="flex items-center gap-3">
+          <button
+            type="submit"
+            disabled={change.isPending || !oldPassword || !newPassword}
+            className="flex items-center gap-2 rounded-full bg-surface-2 px-5 py-2 text-[14px] font-semibold text-ink hover:bg-surface-3 disabled:opacity-50"
+          >
+            {change.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : (
+              <ShieldCheck className="h-4 w-4" />
+            )}
+            Update password
+          </button>
+          {change.isSuccess && (
+            <span className="flex items-center gap-1 text-[13px] text-email">
+              <Check className="h-4 w-4" /> Updated
+            </span>
+          )}
+        </div>
+      </form>
+    </Section>
+  );
+}
+
+function DevicesSection() {
+  const { data: devices = [], isLoading } = useDevices();
+  const { remove, signOutOthers } = useDeviceActions();
+  const hasOthers = devices.some((d) => !d.isCurrent);
+
+  return (
+    <Section title="Devices & sessions">
+      {isLoading ? (
+        <div className="flex justify-center py-4 text-faint">
+          <Loader2 className="h-4 w-4 animate-spin" />
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {devices.map((d) => (
+            <div
+              key={d.deviceId}
+              className="flex items-center gap-3 rounded-lg border border-line bg-canvas px-3 py-2.5"
+            >
+              <Monitor className="h-5 w-5 shrink-0 text-faint" />
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[14px] text-ink">
+                  {d.deviceName || d.deviceType || "Unknown device"}
+                  {d.isCurrent && (
+                    <span className="ml-2 rounded-full bg-email/15 px-2 py-0.5 text-[11px] font-semibold text-email-light">
+                      This device
+                    </span>
+                  )}
+                </div>
+                <div className="truncate text-[12px] text-faint">
+                  {[d.deviceOs, d.deviceAppVersion].filter(Boolean).join(" · ")}
+                  {d.lastActiveAt
+                    ? ` · active ${format(new Date(d.lastActiveAt), "d MMM, HH:mm")}`
+                    : ""}
+                </div>
+              </div>
+              {!d.isCurrent && (
+                <button
+                  type="button"
+                  onClick={() => remove.mutate(d.deviceId)}
+                  className="rounded-md p-1.5 text-faint hover:bg-surface-3 hover:text-accent"
+                  aria-label="Remove device"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+          ))}
+
+          {hasOthers && (
+            <button
+              type="button"
+              onClick={() => signOutOthers.mutate()}
+              disabled={signOutOthers.isPending}
+              className="mt-2 self-start rounded-full bg-surface-2 px-4 py-2 text-[13px] font-semibold text-ink hover:bg-surface-3 disabled:opacity-50"
+            >
+              Sign out all other devices
+            </button>
+          )}
+        </div>
+      )}
+    </Section>
+  );
+}
+
+function SupportSection() {
+  const [copied, setCopied] = useState(false);
+  async function invite() {
+    try {
+      if (typeof navigator.share === "function") {
+        await navigator.share({ text: SHARE_TEXT });
+        return;
+      }
+    } catch {
+      /* user cancelled */
+    }
+    try {
+      await navigator.clipboard.writeText(SHARE_TEXT);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* ignore */
+    }
+  }
+  return (
+    <Section title="Help & more">
+      <div className="flex flex-col gap-2">
+        <Link
+          href={`/mail/compose?type=chat&to=${encodeURIComponent(SUPPORT_ADDRESS)}`}
+          className="flex items-center gap-3 rounded-lg border border-line bg-canvas px-3 py-2.5 text-[14px] text-ink hover:bg-surface"
+        >
+          <LifeBuoy className="h-5 w-5 text-faint" /> Contact support
+        </Link>
+        <button
+          type="button"
+          onClick={invite}
+          className="flex items-center gap-3 rounded-lg border border-line bg-canvas px-3 py-2.5 text-left text-[14px] text-ink hover:bg-surface"
+        >
+          <Share2 className="h-5 w-5 text-faint" />
+          {copied ? "Invite copied to clipboard" : "Invite a friend"}
+        </button>
+      </div>
+    </Section>
+  );
+}
+
+function DangerSection({ onConfirm }: { onConfirm: () => void }) {
+  const [confirming, setConfirming] = useState(false);
+  return (
+    <Section title="Danger zone">
+      {!confirming ? (
+        <button
+          type="button"
+          onClick={() => setConfirming(true)}
+          className="flex items-center gap-2 rounded-full border border-accent/40 px-4 py-2 text-[14px] font-semibold text-accent hover:bg-accent/10"
+        >
+          <Trash2 className="h-4 w-4" /> Delete account
+        </button>
+      ) : (
+        <div className="rounded-lg border border-accent/40 bg-accent/10 p-4">
+          <p className="text-[14px] text-ink">
+            Are you sure you want to delete your account? This action cannot be
+            undone.
+          </p>
+          <p className="mt-1 text-[13px] text-muted">
+            The team will be notified and your account will be deleted.
+          </p>
+          <div className="mt-3 flex gap-2">
+            <button
+              type="button"
+              onClick={() => setConfirming(false)}
+              className="rounded-full bg-surface-2 px-4 py-2 text-[13px] font-semibold text-ink hover:bg-surface-3"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={onConfirm}
+              className="rounded-full bg-accent px-4 py-2 text-[13px] font-semibold text-white hover:opacity-90"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      )}
+    </Section>
+  );
+}
+
+export function SettingsScreen() {
+  const router = useRouter();
+  const { data: user, isLoading } = useSession();
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  async function onLogout() {
+    setLoggingOut(true);
+    await logout();
+    router.replace("/login");
+    router.refresh();
+  }
+
+  return (
+    <div className="flex h-full flex-col">
+      <header className="flex items-center gap-3 border-b border-line px-6 py-4">
+        <h1 className="text-[20px] font-bold text-ink-strong">Settings</h1>
+      </header>
+
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto flex max-w-2xl flex-col gap-5 p-6">
+          {isLoading ? (
+            <div className="flex justify-center py-10 text-faint">
+              <Loader2 className="h-5 w-5 animate-spin" />
+            </div>
+          ) : (
+            <>
+              <ProfileSection user={user ?? null} />
+              <PrivacySection />
+              <PasswordSection />
+              <DevicesSection />
+              <SupportSection />
+              <DangerSection onConfirm={onLogout} />
+              <button
+                type="button"
+                onClick={onLogout}
+                disabled={loggingOut}
+                className="flex items-center justify-center gap-2 self-start rounded-full border border-accent/40 px-5 py-2 text-[14px] font-semibold text-accent hover:bg-accent/10 disabled:opacity-50"
+              >
+                {loggingOut ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <LogOut className="h-4 w-4" />
+                )}
+                Log out
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

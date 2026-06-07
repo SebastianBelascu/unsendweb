@@ -1,0 +1,71 @@
+@import "tailwindcss";
+
+/*
+  Unsend design tokens — modeled 1:1 on the React Native app
+  (frontend/src/Theme/Theme.ts) and the native iOS app
+  (nativeiosdraft-main/.../UnsendTheme.swift). Dark-only.
+  See context/12-coding-conventions.md.
+*/
+@theme {
+  /* Surfaces */
+  --color-canvas: #121110; /* primary background */
+  --color-surface: #1c1b18; /* lighterBg */
+  --color-surface-2: #252320; /* dark01 — settings rows, primary button */
+  --color-surface-3: #2d2b28; /* dark02 — inbound bubbles */
+  --color-line: #1a1916; /* darkBorder — row separators */
+  --color-line-strong: #454340; /* lightBorder — search pill */
+
+  /* Text */
+  --color-ink-strong: #ffffff; /* unseen / active */
+  --color-ink: #f0f0f0; /* grey03 — primary text */
+  --color-muted: #a0a0a0; /* grey02 — secondary / seen */
+  --color-faint: #888888; /* grey04 — placeholder / disabled */
+
+  /* Accents */
+  --color-accent: #ff015c; /* red — primary action / inbox */
+  --color-email: #0fa88e; /* email surface */
+  --color-email-light: #2dd4bf;
+  --color-email-dark: #0a6b5c;
+  --color-chat: #5b21b6; /* chat surface */
+  --color-chat-light: #a78bfa;
+  --color-chat-dark: #3d1680;
+  --color-link: #44bcff;
+  --color-success: #34c759;
+  --color-warning: #ff6b00;
+  --color-yellow: #edff20;
+
+  /* Typography */
+  --font-sans: var(--font-open-sans), "Open Sans", ui-sans-serif, system-ui,
+    -apple-system, sans-serif;
+
+  /* Radii */
+  --radius-bubble: 22px;
+  --radius-card: 14px;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background-color: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Thin, dark scrollbars to match the dark shell */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #3a3836 transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: #3a3836;
+  border-radius: 9999px;
+}
