@@ -1,6 +1,10 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { MailSidebar } from "@/components/mail/MailSidebar";
+import { Suspense } from "react";
+import { DeviceRegistrar } from "@/components/DeviceRegistrar";
+import { InboxShell } from "@/components/shell/InboxShell";
+import { ComposeModal } from "@/components/mail/ComposeModal";
+import { CallHost } from "@/components/calls/CallHost";
 import { SocketProvider } from "@/lib/socket/SocketProvider";
 import { RT_COOKIE } from "@/lib/server/backend";
 
@@ -14,10 +18,13 @@ export default async function AppLayout({
 
   return (
     <SocketProvider>
-      <div className="flex h-screen overflow-hidden">
-        <MailSidebar />
-        <main className="flex min-w-0 flex-1 flex-col">{children}</main>
-      </div>
+      <DeviceRegistrar />
+      {/* useSearchParams in the shell needs a Suspense boundary. */}
+      <Suspense fallback={null}>
+        <InboxShell>{children}</InboxShell>
+      </Suspense>
+      <ComposeModal />
+      <CallHost />
     </SocketProvider>
   );
 }

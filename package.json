@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.101.0",
+    "agora-rtc-sdk-ng": "^4.24.4",
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",
     "dompurify": "^3.4.8",

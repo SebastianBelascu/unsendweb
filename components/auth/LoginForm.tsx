@@ -32,25 +32,33 @@ export function LoginForm() {
     <div className="flex min-h-screen items-center justify-center px-4">
       <form
         onSubmit={onSubmit}
-        className="w-full max-w-sm rounded-2xl border border-line bg-surface/60 p-8"
+        className="w-full max-w-sm rounded-2xl border border-line bg-surface-card p-8"
       >
         <div className="mb-8 text-center">
           <span className="text-[28px] font-bold lowercase tracking-tight text-ink-strong">
             unsend
           </span>
-          <p className="mt-1 text-[13px] text-faint">
+          <p className="mt-1 text-footnote text-faint">
             Sign in to your account
           </p>
         </div>
 
         {error && (
-          <div className="mb-4 rounded-lg border border-accent/40 bg-accent/10 px-3 py-2 text-[13px] text-accent">
+          <div className="mb-4 rounded-lg border border-accent/40 bg-accent/10 px-3 py-2 text-footnote text-accent">
             {error}
+            {/^.*verif/i.test(error) && (
+              <>
+                {" "}
+                <Link href="/signup" className="font-semibold underline">
+                  Finish verification
+                </Link>
+              </>
+            )}
           </div>
         )}
 
         <label className="mb-4 block">
-          <span className="mb-1 block text-[13px] text-muted">
+          <span className="mb-1 block text-footnote text-muted">
             Username or phone
           </span>
           <input
@@ -58,20 +66,20 @@ export function LoginForm() {
             onChange={(e) => setUsername(e.target.value)}
             autoFocus
             autoComplete="username"
-            className="h-[44px] w-full rounded-lg border border-line-strong bg-canvas px-3 text-[15px] text-ink-strong outline-none placeholder:text-faint focus:border-muted"
+            className="h-[44px] w-full rounded-lg border border-line-strong bg-canvas px-3 text-body text-ink-strong outline-none placeholder:text-faint focus:border-muted"
             placeholder="you"
           />
         </label>
 
         <label className="mb-6 block">
-          <span className="mb-1 block text-[13px] text-muted">Password</span>
+          <span className="mb-1 block text-footnote text-muted">Password</span>
           <div className="relative">
             <input
               type={showPassword ? "text" : "password"}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="current-password"
-              className="h-[44px] w-full rounded-lg border border-line-strong bg-canvas px-3 pr-10 text-[15px] text-ink-strong outline-none placeholder:text-faint focus:border-muted"
+              className="h-[44px] w-full rounded-lg border border-line-strong bg-canvas px-3 pr-10 text-body text-ink-strong outline-none placeholder:text-faint focus:border-muted"
               placeholder="••••••••"
             />
             <button
@@ -92,13 +100,13 @@ export function LoginForm() {
         <button
           type="submit"
           disabled={busy || !username.trim() || !password}
-          className="flex h-[44px] w-full items-center justify-center gap-2 rounded-lg bg-accent text-[15px] font-semibold text-white transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-[44px] w-full items-center justify-center gap-2 rounded-lg bg-accent text-body font-semibold text-white transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
         >
           {busy && <Loader2 className="h-4 w-4 animate-spin" />}
           {busy ? "Signing in…" : "Sign in"}
         </button>
 
-        <div className="mt-4 flex items-center justify-between text-[13px]">
+        <div className="mt-4 flex items-center justify-between text-footnote">
           <Link href="/forgot" className="text-link hover:underline">
             Forgot password?
           </Link>

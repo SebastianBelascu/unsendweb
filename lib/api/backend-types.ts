@@ -33,23 +33,34 @@ export interface BackendReaction {
 export interface BackendMessage {
   _id?: string;
   messageId: string;
+  refId?: string | null;
   threadId?: string;
   headerId?: string;
   from?: BackendEmail;
   to?: BackendEmail[];
   cc?: BackendEmail[];
+  bcc?: BackendEmail[];
+  forwarded?: boolean;
+  isPrivate?: boolean;
   html?: string | null;
   hasHtml?: boolean;
   text?: string;
   reactionText?: string;
   outbound?: boolean;
   seen?: boolean;
+  isRead?: boolean;
+  isDelivered?: boolean;
+  edited?: boolean;
+  isDeleted?: boolean;
   replyTo?: string | null;
   reactions?: BackendReaction[];
   attachments?: BackendAttachment[];
   createdAt?: string;
+  updatedAt?: string;
   isInfoMessage?: boolean;
   isCall?: boolean;
+  /** Reaction reply-messages are hidden from the thread (chip-only, like native). */
+  isHidden?: boolean;
 }
 
 export interface BackendThread {

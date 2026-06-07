@@ -35,6 +35,7 @@ export interface ThreadListItem {
   updatedAt: string;
   isEmail: boolean;
   unread: boolean;
+  isGroup?: boolean;
   isPinned?: boolean;
   isBookmarked?: boolean;
   isSilent?: boolean;
@@ -70,6 +71,8 @@ export interface MailReaction {
 /** A single message inside a thread/conversation. */
 export interface MailMessage {
   id: string;
+  /** Client idempotency key — reconciles an optimistic send with its server echo. */
+  refId?: string;
   /** Backend headerId (used for reply-to resolution + removing reactions). */
   headerId?: string;
   /** headerId of the message this one replies to. */
@@ -77,6 +80,10 @@ export interface MailMessage {
   from: ThreadParticipant;
   to: ThreadParticipant[];
   cc?: ThreadParticipant[];
+  bcc?: ThreadParticipant[];
+  /** Email was forwarded / marked private (status labels). */
+  forwarded?: boolean;
+  isPrivate?: boolean;
   reactions?: MailReaction[];
   /** ISO timestamp. */
   date: string;
@@ -88,7 +95,18 @@ export interface MailMessage {
   hasHtml?: boolean;
   /** System/info line (joined/left/added, unsent) — rendered centered, no bubble. */
   isInfoMessage?: boolean;
+  /** Reaction reply-message — never shown in the thread (chip-only, like native). */
+  isHidden?: boolean;
   outbound: boolean;
+  /** Aggregate receipt flags (true when all recipients delivered/read). */
+  isDelivered?: boolean;
+  isRead?: boolean;
+  /** Edited in place (shows an "edited" label). */
+  edited?: boolean;
+  /** Soft-deleted/unsent (rendered as a tombstone, body/attachments hidden). */
+  isDeleted?: boolean;
+  /** Client-only delivery state for optimistic outbound messages. */
+  status?: "sending" | "failed";
   attachments?: MailAttachment[];
 }
 

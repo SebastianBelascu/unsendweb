@@ -11,7 +11,7 @@ import {
 import { ApiError } from "@/lib/api/http";
 
 const inputCls =
-  "h-[44px] w-full rounded-lg border border-line-strong bg-canvas px-3 text-[15px] text-ink-strong outline-none placeholder:text-faint focus:border-muted";
+  "h-[44px] w-full rounded-lg border border-line-strong bg-canvas px-3 text-body text-ink-strong outline-none placeholder:text-faint focus:border-muted";
 
 function errMsg(e: unknown, fallback: string): string {
   if (e instanceof ApiError) {
@@ -29,12 +29,17 @@ function errMsg(e: unknown, fallback: string): string {
 
 type Step = "id" | "code" | "pw" | "done";
 
-export function ForgotPasswordForm() {
-  const [step, setStep] = useState<Step>("id");
+export function ForgotPasswordForm({
+  initialToken = "",
+}: {
+  initialToken?: string;
+}) {
+  // A reset deep link (?token=) jumps straight to choosing a new password.
+  const [step, setStep] = useState<Step>(initialToken ? "pw" : "id");
   const [userData, setUserData] = useState("");
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
-  const [token, setToken] = useState("");
+  const [token, setToken] = useState(initialToken);
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -47,13 +52,14 @@ export function ForgotPasswordForm() {
     try {
       const res = await requestPasswordReset(userData.trim());
       if (!res?.phone) {
-        setError(res?.message || "Account not found.");
+        // Neutral wording — don't confirm whether an account exists.
+        setError("We couldn't start a reset. Check your username, email, or phone and try again.");
       } else {
         setPhone(res.phone);
         setStep("code");
       }
-    } catch (err) {
-      setError(errMsg(err, "Account not found."));
+    } catch {
+      setError("We couldn't start a reset. Check your username, email, or phone and try again.");
     }
     setBusy(false);
   }
@@ -75,6 +81,8 @@ export function ForgotPasswordForm() {
   async function submitPw(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    if (!token)
+      return setError("Reset link is invalid or expired. Start the reset again.");
     if (password.length < 8) return setError("Password must be at least 8 characters.");
     if (password !== confirm) return setError("Passwords don't match.");
     setBusy(true);
@@ -89,11 +97,11 @@ export function ForgotPasswordForm() {
 
   return (
     <div className="flex min-h-screen items-center justify-center px-4">
-      <div className="w-full max-w-sm rounded-2xl border border-line bg-surface/60 p-8">
+      <div className="w-full max-w-sm rounded-2xl border border-line bg-surface-card p-8">
         <h1 className="mb-1 text-[22px] font-bold text-ink-strong">
           Reset password
         </h1>
-        <p className="mb-6 text-[13px] text-faint">
+        <p className="mb-6 text-footnote text-faint">
           {step === "id" && "Enter your username, email, or phone."}
           {step === "code" && "Enter the 6-digit code we sent by SMS."}
           {step === "pw" && "Choose a new password."}
@@ -101,7 +109,7 @@ export function ForgotPasswordForm() {
         </p>
 
         {error && (
-          <div className="mb-4 rounded-lg border border-accent/40 bg-accent/10 px-3 py-2 text-[13px] text-accent">
+          <div className="mb-4 rounded-lg border border-accent/40 bg-accent/10 px-3 py-2 text-footnote text-accent">
             {error}
           </div>
         )}
@@ -152,21 +160,21 @@ export function ForgotPasswordForm() {
               autoComplete="new-password"
               className={inputCls}
             />
-            <SubmitButton busy={busy} disabled={!password || !confirm} label="Update password" />
+            <SubmitButton busy={busy} disabled={!password || !confirm || !token} label="Update password" />
           </form>
         )}
 
         {step === "done" && (
           <Link
             href="/login"
-            className="flex h-[44px] w-full items-center justify-center rounded-lg bg-accent text-[15px] font-semibold text-white"
+            className="flex h-[44px] w-full items-center justify-center rounded-lg bg-accent text-body font-semibold text-white"
           >
             Back to sign in
           </Link>
         )}
 
         {step !== "done" && (
-          <p className="mt-4 text-center text-[13px] text-faint">
+          <p className="mt-4 text-center text-footnote text-faint">
             <Link href="/login" className="text-link hover:underline">
               Back to sign in
             </Link>
@@ -190,7 +198,7 @@ function SubmitButton({
     <button
       type="submit"
       disabled={busy || disabled}
-      className="flex h-[44px] w-full items-center justify-center gap-2 rounded-lg bg-accent text-[15px] font-semibold text-white transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
+      className="flex h-[44px] w-full items-center justify-center gap-2 rounded-lg bg-accent text-body font-semibold text-white transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
     >
       {busy && <Loader2 className="h-4 w-4 animate-spin" />}
       {label}

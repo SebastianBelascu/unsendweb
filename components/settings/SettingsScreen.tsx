@@ -1,11 +1,12 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState, useSyncExternalStore } from "react";
 import { format } from "date-fns";
 import {
+  Camera,
   Check,
+  ChevronDown,
   LifeBuoy,
   Loader2,
   LogOut,
@@ -19,8 +20,15 @@ const SHARE_TEXT =
   "unsend is the future of communication. unlock your email experience & communicate with the people you love, send work emails all from one app. download now: https://apps.apple.com/eg/app/unsend-app/id6502881627";
 const SUPPORT_ADDRESS = "support@unsend.app";
 import { Avatar } from "@/components/mail/Avatar";
+import { ConfirmDialog } from "@/components/mail/ConfirmDialog";
 import { cn } from "@/lib/utils";
+import { getStoredAvatar, uploadAvatar } from "@/lib/api/avatar";
+import { selfAvatarUrl } from "@/lib/avatar-url";
+import { useRealtime } from "@/lib/realtime/store";
+import { useComposeModal } from "@/lib/compose-modal";
 import { logout, type SessionUser } from "@/lib/api/auth";
+
+const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? "0.1.0";
 import {
   useChangePassword,
   useDeviceActions,
@@ -32,28 +40,69 @@ import {
   type ProfileUpdate,
 } from "@/lib/api/account";
 
+/** Reactively read this device's stored avatar URL (updates after upload). */
+function useStoredAvatar(username?: string): string | undefined {
+  return useSyncExternalStore(
+    (cb) => {
+      window.addEventListener("unsend:avatar", cb);
+      window.addEventListener("storage", cb);
+      return () => {
+        window.removeEventListener("unsend:avatar", cb);
+        window.removeEventListener("storage", cb);
+      };
+    },
+    () => getStoredAvatar(username),
+    () => undefined,
+  );
+}
+
+/**
+ * Collapsible settings section — collapsed by default so the whole page is a
+ * compact list of headers; click one to expand and edit. Content stays mounted
+ * (hidden via CSS) so in-progress form edits aren't lost on collapse.
+ */
 function Section({
   title,
   description,
   children,
+  defaultOpen = false,
 }: {
   title: string;
   description?: string;
   children: React.ReactNode;
+  defaultOpen?: boolean;
 }) {
+  const [open, setOpen] = useState(defaultOpen);
   return (
-    <section className="rounded-xl border border-line bg-surface/40 p-5">
-      <h2 className="text-[15px] font-bold text-ink-strong">{title}</h2>
-      {description && (
-        <p className="mt-0.5 text-[13px] text-faint">{description}</p>
-      )}
-      <div className="mt-4">{children}</div>
+    <section className="overflow-hidden rounded-xl border border-line bg-surface-card">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-3 px-5 py-4 text-left transition-colors hover:bg-surface"
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block text-body font-bold text-ink-strong">{title}</span>
+          {description && (
+            <span className="mt-0.5 block text-footnote text-faint">
+              {description}
+            </span>
+          )}
+        </span>
+        <ChevronDown
+          className={cn(
+            "h-5 w-5 shrink-0 text-faint transition-transform",
+            open && "rotate-180",
+          )}
+        />
+      </button>
+      <div className={cn("px-5 pb-5", !open && "hidden")}>{children}</div>
     </section>
   );
 }
 
 const inputCls =
-  "h-[42px] w-full rounded-lg border border-line-strong bg-canvas px-3 text-[15px] text-ink-strong outline-none placeholder:text-faint focus:border-muted";
+  "h-[42px] w-full rounded-lg border border-line-strong bg-canvas px-3 text-body text-ink-strong outline-none placeholder:text-faint focus:border-muted";
 
 function Toggle({
   checked,
@@ -87,9 +136,36 @@ function Toggle({
 
 function ProfileSection({ user }: { user: SessionUser | null }) {
   const update = useUpdateProfile();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [avatarError, setAvatarError] = useState(false);
+  const storedAvatar = useStoredAvatar(user?.username);
+  const ownVersion = useRealtime((s) =>
+    user?.username ? s.avatarVersions[user.username.toLowerCase()] : undefined,
+  );
+  // Prefer this device's freshly-uploaded URL; otherwise attempt the deterministic
+  // self URL (shows the photo if it exists at S3 even when the version isn't
+  // tracked; 404s fall back to the gradient).
+  const avatarUrl =
+    storedAvatar ?? selfAvatarUrl(user?.username, ownVersion);
   const name = `${user?.firstName ?? ""} ${user?.lastName ?? ""}`.trim() ||
     user?.username ||
     "You";
+
+  async function onPickAvatar(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !user?.username) return;
+    setAvatarError(false);
+    setUploading(true);
+    try {
+      await uploadAvatar(file, user.username);
+    } catch {
+      setAvatarError(true);
+    } finally {
+      setUploading(false);
+    }
+  }
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -104,30 +180,57 @@ function ProfileSection({ user }: { user: SessionUser | null }) {
   }
 
   return (
-    <Section title="Profile">
+    <Section title="Profile" defaultOpen>
       <div className="mb-5 flex items-center gap-4">
-        <Avatar
-          name={name}
-          seed={user?.username ? `${user.username}@unsend.app` : name}
-          isEmail={false}
-          size={64}
-          showBadge={false}
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          disabled={uploading || !user?.username}
+          className="group relative shrink-0 rounded-full"
+          aria-label="Change profile photo"
+        >
+          <Avatar
+            name={name}
+            seed={user?.username ? `${user.username}@unsend.app` : name}
+            imageUrl={avatarUrl}
+            isEmail={false}
+            size={64}
+            showBadge={false}
+          />
+          <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/45 opacity-0 transition-opacity group-hover:opacity-100">
+            <Camera className="h-5 w-5 text-white" />
+          </span>
+          {uploading && (
+            <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/45">
+              <Loader2 className="h-5 w-5 animate-spin text-white" />
+            </span>
+          )}
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          hidden
+          onChange={onPickAvatar}
         />
         <div className="min-w-0">
-          <div className="truncate text-[16px] font-semibold text-ink-strong">
+          <div className="truncate text-callout font-semibold text-ink-strong">
             {name}
           </div>
-          <div className="truncate text-[13px] text-faint">
+          <div className="truncate text-footnote text-faint">
             @{user?.username}
             {user?.phone ? ` · ${user.phone}` : ""}
           </div>
+          {avatarError && (
+            <div className="text-caption text-accent">Couldn&apos;t upload photo.</div>
+          )}
         </div>
       </div>
 
       <form onSubmit={onSubmit} className="flex flex-col gap-3">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="block">
-            <span className="mb-1 block text-[13px] text-muted">First name</span>
+            <span className="mb-1 block text-footnote text-muted">First name</span>
             <input
               name="firstName"
               defaultValue={user?.firstName ?? ""}
@@ -135,7 +238,7 @@ function ProfileSection({ user }: { user: SessionUser | null }) {
             />
           </label>
           <label className="block">
-            <span className="mb-1 block text-[13px] text-muted">Last name</span>
+            <span className="mb-1 block text-footnote text-muted">Last name</span>
             <input
               name="lastName"
               defaultValue={user?.lastName ?? ""}
@@ -143,7 +246,7 @@ function ProfileSection({ user }: { user: SessionUser | null }) {
             />
           </label>
           <label className="block">
-            <span className="mb-1 block text-[13px] text-muted">Birth date</span>
+            <span className="mb-1 block text-footnote text-muted">Birth date</span>
             <input
               name="birthDate"
               type="date"
@@ -157,7 +260,7 @@ function ProfileSection({ user }: { user: SessionUser | null }) {
           <button
             type="submit"
             disabled={update.isPending}
-            className="flex items-center gap-2 rounded-full bg-accent px-5 py-2 text-[14px] font-semibold text-white transition-opacity disabled:opacity-50"
+            className="flex items-center gap-2 rounded-full bg-accent px-5 py-2 text-subhead font-semibold text-white transition-opacity disabled:opacity-50"
           >
             {update.isPending ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -165,12 +268,12 @@ function ProfileSection({ user }: { user: SessionUser | null }) {
             Save
           </button>
           {update.isSuccess && (
-            <span className="flex items-center gap-1 text-[13px] text-email">
+            <span className="flex items-center gap-1 text-footnote text-email">
               <Check className="h-4 w-4" /> Saved
             </span>
           )}
           {update.isError && (
-            <span className="text-[13px] text-accent">Couldn&apos;t save.</span>
+            <span className="text-footnote text-accent">Couldn&apos;t save.</span>
           )}
         </div>
       </form>
@@ -215,8 +318,8 @@ function PrivacySection() {
       <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <div className="text-[14px] text-ink">Show online status</div>
-            <div className="text-[12px] text-faint">
+            <div className="text-subhead text-ink">Show online status</div>
+            <div className="text-caption text-faint">
               Let others see when you&apos;re active.
             </div>
           </div>
@@ -224,8 +327,8 @@ function PrivacySection() {
         </div>
         <div className="flex items-center justify-between gap-4">
           <div>
-            <div className="text-[14px] text-ink">Show last seen</div>
-            <div className="text-[12px] text-faint">
+            <div className="text-subhead text-ink">Show last seen</div>
+            <div className="text-caption text-faint">
               Let others see your last-active time.
             </div>
           </div>
@@ -298,12 +401,12 @@ function PasswordSection() {
           autoComplete="new-password"
           className={inputCls}
         />
-        {error && <span className="text-[13px] text-accent">{error}</span>}
+        {error && <span className="text-footnote text-accent">{error}</span>}
         <div className="flex items-center gap-3">
           <button
             type="submit"
             disabled={change.isPending || !oldPassword || !newPassword}
-            className="flex items-center gap-2 rounded-full bg-surface-2 px-5 py-2 text-[14px] font-semibold text-ink hover:bg-surface-3 disabled:opacity-50"
+            className="flex items-center gap-2 rounded-full bg-surface-2 px-5 py-2 text-subhead font-semibold text-ink hover:bg-surface-3 disabled:opacity-50"
           >
             {change.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : (
               <ShieldCheck className="h-4 w-4" />
@@ -311,7 +414,7 @@ function PasswordSection() {
             Update password
           </button>
           {change.isSuccess && (
-            <span className="flex items-center gap-1 text-[13px] text-email">
+            <span className="flex items-center gap-1 text-footnote text-email">
               <Check className="h-4 w-4" /> Updated
             </span>
           )}
@@ -341,15 +444,15 @@ function DevicesSection() {
             >
               <Monitor className="h-5 w-5 shrink-0 text-faint" />
               <div className="min-w-0 flex-1">
-                <div className="truncate text-[14px] text-ink">
+                <div className="truncate text-subhead text-ink">
                   {d.deviceName || d.deviceType || "Unknown device"}
                   {d.isCurrent && (
-                    <span className="ml-2 rounded-full bg-email/15 px-2 py-0.5 text-[11px] font-semibold text-email-light">
+                    <span className="ml-2 rounded-full bg-email/15 px-2 py-0.5 text-micro font-semibold text-email-light">
                       This device
                     </span>
                   )}
                 </div>
-                <div className="truncate text-[12px] text-faint">
+                <div className="truncate text-caption text-faint">
                   {[d.deviceOs, d.deviceAppVersion].filter(Boolean).join(" · ")}
                   {d.lastActiveAt
                     ? ` · active ${format(new Date(d.lastActiveAt), "d MMM, HH:mm")}`
@@ -374,7 +477,7 @@ function DevicesSection() {
               type="button"
               onClick={() => signOutOthers.mutate()}
               disabled={signOutOthers.isPending}
-              className="mt-2 self-start rounded-full bg-surface-2 px-4 py-2 text-[13px] font-semibold text-ink hover:bg-surface-3 disabled:opacity-50"
+              className="mt-2 self-start rounded-full bg-surface-2 px-4 py-2 text-footnote font-semibold text-ink hover:bg-surface-3 disabled:opacity-50"
             >
               Sign out all other devices
             </button>
@@ -387,6 +490,7 @@ function DevicesSection() {
 
 function SupportSection() {
   const [copied, setCopied] = useState(false);
+  const openCompose = useComposeModal((s) => s.open);
   async function invite() {
     try {
       if (typeof navigator.share === "function") {
@@ -407,16 +511,17 @@ function SupportSection() {
   return (
     <Section title="Help & more">
       <div className="flex flex-col gap-2">
-        <Link
-          href={`/mail/compose?type=chat&to=${encodeURIComponent(SUPPORT_ADDRESS)}`}
-          className="flex items-center gap-3 rounded-lg border border-line bg-canvas px-3 py-2.5 text-[14px] text-ink hover:bg-surface"
+        <button
+          type="button"
+          onClick={() => openCompose({ isEmail: false, to: SUPPORT_ADDRESS })}
+          className="flex items-center gap-3 rounded-lg border border-line bg-canvas px-3 py-2.5 text-left text-subhead text-ink hover:bg-surface"
         >
           <LifeBuoy className="h-5 w-5 text-faint" /> Contact support
-        </Link>
+        </button>
         <button
           type="button"
           onClick={invite}
-          className="flex items-center gap-3 rounded-lg border border-line bg-canvas px-3 py-2.5 text-left text-[14px] text-ink hover:bg-surface"
+          className="flex items-center gap-3 rounded-lg border border-line bg-canvas px-3 py-2.5 text-left text-subhead text-ink hover:bg-surface"
         >
           <Share2 className="h-5 w-5 text-faint" />
           {copied ? "Invite copied to clipboard" : "Invite a friend"}
@@ -434,31 +539,31 @@ function DangerSection({ onConfirm }: { onConfirm: () => void }) {
         <button
           type="button"
           onClick={() => setConfirming(true)}
-          className="flex items-center gap-2 rounded-full border border-accent/40 px-4 py-2 text-[14px] font-semibold text-accent hover:bg-accent/10"
+          className="flex items-center gap-2 rounded-full border border-accent/40 px-4 py-2 text-subhead font-semibold text-accent hover:bg-accent/10"
         >
           <Trash2 className="h-4 w-4" /> Delete account
         </button>
       ) : (
         <div className="rounded-lg border border-accent/40 bg-accent/10 p-4">
-          <p className="text-[14px] text-ink">
+          <p className="text-subhead text-ink">
             Are you sure you want to delete your account? This action cannot be
             undone.
           </p>
-          <p className="mt-1 text-[13px] text-muted">
+          <p className="mt-1 text-footnote text-muted">
             The team will be notified and your account will be deleted.
           </p>
           <div className="mt-3 flex gap-2">
             <button
               type="button"
               onClick={() => setConfirming(false)}
-              className="rounded-full bg-surface-2 px-4 py-2 text-[13px] font-semibold text-ink hover:bg-surface-3"
+              className="rounded-full bg-surface-2 px-4 py-2 text-footnote font-semibold text-ink hover:bg-surface-3"
             >
               Cancel
             </button>
             <button
               type="button"
               onClick={onConfirm}
-              className="rounded-full bg-accent px-4 py-2 text-[13px] font-semibold text-white hover:opacity-90"
+              className="rounded-full bg-accent px-4 py-2 text-footnote font-semibold text-white hover:opacity-90"
             >
               Delete
             </button>
@@ -473,6 +578,7 @@ export function SettingsScreen() {
   const router = useRouter();
   const { data: user, isLoading } = useSession();
   const [loggingOut, setLoggingOut] = useState(false);
+  const [confirmLogout, setConfirmLogout] = useState(false);
 
   async function onLogout() {
     setLoggingOut(true);
@@ -484,7 +590,7 @@ export function SettingsScreen() {
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center gap-3 border-b border-line px-6 py-4">
-        <h1 className="text-[20px] font-bold text-ink-strong">Settings</h1>
+        <h1 className="text-title font-bold text-ink-strong">Settings</h1>
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -503,9 +609,9 @@ export function SettingsScreen() {
               <DangerSection onConfirm={onLogout} />
               <button
                 type="button"
-                onClick={onLogout}
+                onClick={() => setConfirmLogout(true)}
                 disabled={loggingOut}
-                className="flex items-center justify-center gap-2 self-start rounded-full border border-accent/40 px-5 py-2 text-[14px] font-semibold text-accent hover:bg-accent/10 disabled:opacity-50"
+                className="flex items-center justify-center gap-2 self-start rounded-full border border-accent/40 px-5 py-2 text-subhead font-semibold text-accent hover:bg-accent/10 disabled:opacity-50"
               >
                 {loggingOut ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -514,10 +620,27 @@ export function SettingsScreen() {
                 )}
                 Log out
               </button>
+
+              <p className="mt-2 text-center text-caption text-faint">
+                unsend web · v{APP_VERSION}
+              </p>
             </>
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmLogout}
+        danger
+        title="Log out of this device?"
+        body="You'll need to sign in again to use unsend on this device."
+        confirmLabel="Log out"
+        onConfirm={() => {
+          setConfirmLogout(false);
+          onLogout();
+        }}
+        onCancel={() => setConfirmLogout(false)}
+      />
     </div>
   );
 }

@@ -1,31 +1,76 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { format, isToday, isYesterday } from "date-fns";
 import {
+  ArrowDown,
   ArrowLeft,
+  Ban,
+  Check,
+  CheckCheck,
+  Copy,
   FileText,
+  Forward,
+  Info,
   Loader2,
+  MoreHorizontal,
   Paperclip,
-  SendHorizontal,
+  Pencil,
+  Plus,
+  Reply,
   SmilePlus,
+  Trash2,
+  Users,
+  X,
 } from "lucide-react";
 import { Avatar } from "./Avatar";
+import { UserAvatar } from "./UserAvatar";
+import { CallButtons } from "@/components/calls/CallButtons";
 import { EmailBody } from "./EmailBody";
+import { MessageComposer } from "./MessageComposer";
+import {
+  dtosToMailAttachments,
+  useComposerAttachments,
+} from "./attachments";
 import { cn } from "@/lib/utils";
-import { isOwnMessage } from "@/lib/identity";
+import { isOwnMessage, localPart, MAIL_DOMAIN } from "@/lib/identity";
 import { useSession } from "@/lib/api/account";
+import {
+  useEmitTyping,
+  useLastSeen,
+  useOnline,
+  usePresenceFor,
+  useTyping,
+} from "@/lib/realtime/hooks";
 import {
   fetchMessageHtml,
   markThreadSeen,
+  markVoiceListened,
+  useMessageActions,
   useReactToMessage,
   useRemoveReaction,
   useSendMessage,
   useThreadMessages,
+  type SendMessageInput,
 } from "@/lib/api/messages";
-import type { MailAttachment, MailMessage } from "@/lib/types";
+import { ApiError } from "@/lib/api/http";
+import { markThreadReadInCache } from "@/lib/realtime/threadCache";
+import { useComposeModal } from "@/lib/compose-modal";
+import { ConfirmDialog } from "./ConfirmDialog";
+import { EmojiPicker } from "./EmojiPicker";
+import { GroupPanel } from "./GroupPanel";
+import { ProfilePanel } from "./ProfilePanel";
+import { MessageInfoSheet } from "./MessageInfoSheet";
+import { ReactorSheet } from "./ReactorSheet";
+import type {
+  MailAttachment,
+  MailMessage,
+  MailReaction,
+  ThreadParticipant,
+} from "@/lib/types";
 
 const ME = { name: "You" };
 const QUICK_EMOJIS = ["❤️", "😂", "😮", "😢", "😠", "👍"];
@@ -35,6 +80,17 @@ const VID_RE = /\.(mp4|mov|avi|mkv|wmv|flv|3gp|m4v)$/i;
 
 function stripRe(subject: string): string {
   return subject.replace(/^\s*(re|fwd|fw)\s*:\s*/i, "").trim();
+}
+
+function lastSeenLabel(iso: string): string {
+  const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  const days = Math.floor(s / 86400);
+  if (days === 1) return "yesterday";
+  if (days < 7) return `${days}d ago`;
+  return format(new Date(iso), "MMM d");
 }
 
 function fileKind(a: MailAttachment): "image" | "video" | "voice" | "file" {
@@ -84,9 +140,25 @@ function Linkified({ text }: { text: string }) {
   );
 }
 
-function Attachments({ attachments }: { attachments: MailAttachment[] }) {
+const Attachments = memo(function Attachments({
+  attachments,
+  messageId,
+  isOwn,
+}: {
+  attachments: MailAttachment[];
+  messageId?: string;
+  isOwn?: boolean;
+}) {
+  const listened = useRef(false);
   const images = attachments.filter((a) => fileKind(a) === "image" && a.url);
   const rest = attachments.filter((a) => fileKind(a) !== "image");
+
+  function onVoicePlay() {
+    // Mark inbound voice notes as listened once (the backend dedupes per user).
+    if (isOwn || !messageId || listened.current) return;
+    listened.current = true;
+    markVoiceListened(messageId).catch(() => {});
+  }
   return (
     <div className="flex flex-col gap-1.5" onClick={(e) => e.stopPropagation()}>
       {images.length > 0 && (
@@ -112,9 +184,14 @@ function Attachments({ attachments }: { attachments: MailAttachment[] }) {
         if (k === "voice")
           return (
             <div key={a.id} className="flex items-center gap-2">
-              <audio src={a.url} controls className="h-9 max-w-[240px]" />
+              <audio
+                src={a.url}
+                controls
+                onPlay={onVoicePlay}
+                className="h-9 max-w-[240px]"
+              />
               {a.durationSec ? (
-                <span className="text-[11px] opacity-70">{formatDur(a.durationSec)}</span>
+                <span className="text-micro opacity-70">{formatDur(a.durationSec)}</span>
               ) : null}
             </div>
           );
@@ -124,7 +201,7 @@ function Attachments({ attachments }: { attachments: MailAttachment[] }) {
             href={a.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-2 rounded-lg bg-black/20 px-3 py-2 text-[13px] hover:bg-black/30"
+            className="flex items-center gap-2 rounded-lg bg-black/20 px-3 py-2 text-footnote hover:bg-black/30"
           >
             <Paperclip className="h-4 w-4 shrink-0" />
             <span className="max-w-[200px] truncate">{a.filename}</span>
@@ -134,18 +211,18 @@ function Attachments({ attachments }: { attachments: MailAttachment[] }) {
       })}
     </div>
   );
-}
+});
 
 function ReactionChips({
   message,
   isOwn,
   myUserId,
-  onToggle,
+  onOpen,
 }: {
   message: MailMessage;
   isOwn: boolean;
   myUserId?: string;
-  onToggle: (emoji: string) => void;
+  onOpen: () => void;
 }) {
   const reactions = message.reactions ?? [];
   if (reactions.length === 0) return null;
@@ -154,31 +231,45 @@ function ReactionChips({
   const mine = new Set(
     reactions.filter((r) => r.byUserId && r.byUserId === myUserId).map((r) => r.emoji),
   );
+  const shown = unique.slice(0, 3);
+  const extra = unique.length - shown.length;
   return (
     <div className={cn("mt-0.5 flex flex-wrap gap-1", isOwn ? "justify-end" : "justify-start")}>
-      {unique.slice(0, 3).map((emoji) => (
+      {shown.map((emoji) => (
         <button
           key={emoji}
           type="button"
           onClick={(e) => {
             e.stopPropagation();
-            onToggle(emoji);
+            onOpen();
           }}
           className={cn(
-            "flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[12px]",
+            "flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-caption",
             mine.has(emoji)
               ? "border-link/50 bg-link/15"
               : "border-line-strong bg-surface-2",
           )}
         >
           <span>{emoji}</span>
-          {reactions.length > 1 && (
-            <span className="text-[10px] text-faint">
+          {reactions.filter((r) => r.emoji === emoji).length > 1 && (
+            <span className="text-micro text-faint">
               {reactions.filter((r) => r.emoji === emoji).length}
             </span>
           )}
         </button>
       ))}
+      {extra > 0 && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpen();
+          }}
+          className="flex items-center rounded-full border border-line-strong bg-surface-2 px-1.5 py-0.5 text-micro text-faint"
+        >
+          +{extra}
+        </button>
+      )}
     </div>
   );
 }
@@ -217,7 +308,7 @@ function OriginalOverlay({
         <button
           type="button"
           onClick={onClose}
-          className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[14px] font-semibold text-muted hover:bg-surface hover:text-ink"
+          className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-subhead font-semibold text-muted hover:bg-surface hover:text-ink"
         >
           <ArrowLeft className="h-5 w-5" /> View summarized
         </button>
@@ -239,6 +330,105 @@ function OriginalOverlay({
   );
 }
 
+type MsgAction =
+  | "reply"
+  | "copy"
+  | "edit"
+  | "forward"
+  | "info"
+  | "deleteForMe"
+  | "deleteForAll";
+
+interface MenuPos {
+  top?: number;
+  bottom?: number;
+  left?: number;
+  right?: number;
+}
+
+function BubbleMenu({
+  message,
+  isOwn,
+  isEmail,
+  hasText,
+  pos,
+  onAction,
+  onClose,
+}: {
+  message: MailMessage;
+  isOwn: boolean;
+  isEmail: boolean;
+  hasText: boolean;
+  pos: MenuPos;
+  onAction: (a: MsgAction) => void;
+  onClose: () => void;
+}) {
+  const deleted = message.isDeleted;
+  const items: { key: MsgAction; label: string; Icon: typeof Reply; danger?: boolean }[] =
+    [];
+  if (!deleted) {
+    items.push({ key: "reply", label: "Reply", Icon: Reply });
+    if (hasText) items.push({ key: "copy", label: "Copy", Icon: Copy });
+    items.push({ key: "forward", label: "Forward", Icon: Forward });
+    if (isEmail) items.push({ key: "info", label: "Message info", Icon: Info });
+    if (isOwn && hasText) items.push({ key: "edit", label: "Edit", Icon: Pencil });
+  }
+  items.push({ key: "deleteForMe", label: "Delete for me", Icon: Trash2, danger: true });
+  if (isOwn && !deleted)
+    items.push({ key: "deleteForAll", label: "Unsend for everyone", Icon: Ban, danger: true });
+
+  // Portal + fixed positioning so the menu is never clipped by the scroll
+  // container and can flip up/down based on available space (computed by Bubble).
+  return createPortal(
+    <>
+      <div
+        className="fixed inset-0 z-[60]"
+        onClick={(e) => {
+          e.stopPropagation();
+          onClose();
+        }}
+      />
+      <div
+        style={pos}
+        className="fixed z-[61] max-h-[70vh] w-52 overflow-y-auto rounded-2xl border border-line-strong bg-surface-2 py-1.5 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {items.map((it) => (
+          <button
+            key={it.key}
+            type="button"
+            onClick={() => {
+              onAction(it.key);
+              onClose();
+            }}
+            className={cn(
+              "flex w-full items-center gap-2.5 px-3 py-2 text-left text-footnote hover:bg-surface-3",
+              it.danger ? "text-accent" : "text-ink",
+            )}
+          >
+            <it.Icon className="h-4 w-4 shrink-0" />
+            {it.label}
+          </button>
+        ))}
+      </div>
+    </>,
+    document.body,
+  );
+}
+
+/** WhatsApp-style delivery ticks for an outbound message. */
+function StatusTicks({ message }: { message: MailMessage }) {
+  if (message.status === "sending")
+    return (
+      <Loader2 className="h-3 w-3 animate-spin" aria-label="Sending" />
+    );
+  if (message.isRead)
+    return <CheckCheck className="h-3.5 w-3.5 text-link" aria-label="Read" />;
+  if (message.isDelivered)
+    return <CheckCheck className="h-3.5 w-3.5" aria-label="Delivered" />;
+  return <Check className="h-3.5 w-3.5" aria-label="Sent" />;
+}
+
 function Bubble({
   message,
   replied,
@@ -247,14 +437,23 @@ function Bubble({
   showAvatar,
   showName,
   isGroup,
+  isLastOutbound,
   showTime,
   myUserId,
   reactOpen,
+  menuOpen,
+  selectMode,
+  selected,
+  onToggleSelect,
   onToggleTime,
   onSeeOriginal,
   onOpenReact,
+  onToggleMenu,
+  onAction,
   onPickEmoji,
-  onToggleReaction,
+  onOpenPicker,
+  onOpenReactors,
+  onRetry,
 }: {
   message: MailMessage;
   replied?: MailMessage;
@@ -263,29 +462,124 @@ function Bubble({
   showAvatar: boolean;
   showName: boolean;
   isGroup: boolean;
+  isLastOutbound: boolean;
   showTime: boolean;
   myUserId?: string;
   reactOpen: boolean;
+  menuOpen: boolean;
+  selectMode: boolean;
+  selected: boolean;
+  onToggleSelect: () => void;
   onToggleTime: () => void;
   onSeeOriginal: (m: MailMessage) => void;
   onOpenReact: () => void;
+  onToggleMenu: () => void;
+  onAction: (a: MsgAction) => void;
   onPickEmoji: (emoji: string) => void;
-  onToggleReaction: (emoji: string) => void;
+  onOpenPicker: () => void;
+  onOpenReactors: () => void;
+  onRetry: () => void;
 }) {
+  const actionable = Boolean(message.headerId); // real (sent) message, not in-flight
+  const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const startPress = () => {
+    if (message.isDeleted || !actionable) return;
+    pressTimer.current = setTimeout(() => onOpenReact(), 400);
+  };
+  const cancelPress = () => {
+    if (pressTimer.current) clearTimeout(pressTimer.current);
+  };
+  useEffect(() => {
+    return () => {
+      if (pressTimer.current) clearTimeout(pressTimer.current);
+    };
+  }, []);
+
+  // Position the actions menu: anchored to the bubble, opening toward whichever
+  // side has more room (down near the top, up near the bottom). Fixed-positioned
+  // via a portal so it's never clipped by the scroll container.
+  const bubbleRef = useRef<HTMLDivElement>(null);
+  const [menuPos, setMenuPos] = useState<MenuPos | null>(null);
+  useLayoutEffect(() => {
+    if (!menuOpen) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setMenuPos(null);
+      return;
+    }
+    const el = bubbleRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const horizontal = isOwn
+      ? { right: Math.max(8, window.innerWidth - r.right) }
+      : { left: Math.max(8, r.left) };
+    const openDown = window.innerHeight - r.bottom >= r.top;
+    setMenuPos(
+      openDown
+        ? { top: r.bottom + 6, ...horizontal }
+        : { bottom: window.innerHeight - r.top + 6, ...horizontal },
+    );
+  }, [menuOpen, isOwn]);
+  // The menu is fixed-positioned; close it if the view scrolls or resizes.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = () => onToggleMenu();
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [menuOpen, onToggleMenu]);
+
   const ownColor = isEmail ? "bg-email text-white" : "bg-chat text-white";
   const text = message.text?.trim();
   const atts = message.attachments ?? [];
-  const canSeeOriginal = isEmail && !isOwn && message.hasHtml;
+  const deleted = Boolean(message.isDeleted);
+  const canSeeOriginal = isEmail && !isOwn && message.hasHtml && !deleted;
+  // Delivery ticks: on the latest sent chat message by default, on any own
+  // message you tap (showTime), and whenever a send is in flight/failed.
+  const showStatus =
+    isOwn &&
+    !isEmail &&
+    !deleted &&
+    (Boolean(message.status) || isLastOutbound || showTime);
+  // Only real (sent, non-deleted) messages can be selected for forwarding.
+  const selectable = actionable && !deleted;
 
   return (
     <div
-      className={cn("group flex items-end gap-2", isOwn ? "flex-row-reverse" : "flex-row")}
+      onClick={selectMode && selectable ? onToggleSelect : undefined}
+      className={cn(
+        "group flex flex-col rounded-lg",
+        selectMode && selectable && "cursor-pointer",
+        selected && "bg-accent/10",
+      )}
     >
+      <div
+        className={cn(
+          "flex items-end gap-2",
+          isOwn ? "flex-row-reverse" : "flex-row",
+        )}
+      >
+      {selectMode && (
+        <span
+          className={cn(
+            "flex h-5 w-5 shrink-0 items-center justify-center self-center rounded-full border transition-colors",
+            !selectable
+              ? "border-transparent"
+              : selected
+                ? "border-accent bg-accent text-white"
+                : "border-line-strong text-transparent",
+          )}
+        >
+          <Check className="h-3 w-3" />
+        </span>
+      )}
       {!isOwn &&
         (showAvatar ? (
-          <Avatar
+          <UserAvatar
             name={message.from.name}
-            seed={message.from.address}
+            address={message.from.address}
             isEmail={isEmail}
             size={28}
             showBadge={false}
@@ -294,17 +588,17 @@ function Bubble({
           <span className="w-7 shrink-0" />
         ))}
 
-      <div className={cn("flex max-w-[78%] flex-col", isOwn ? "items-end" : "items-start")}>
+      <div className={cn("flex max-w-[75%] flex-col", isOwn ? "items-end" : "items-start")}>
         {!isOwn && (isGroup || isEmail) && showName && (
-          <span className="mb-0.5 ml-1 block text-[13px] text-muted">
+          <span className="mb-0.5 ml-1 block text-footnote text-muted">
             {message.from.name}
           </span>
         )}
 
-        {replied && (
+        {replied && !deleted && (
           <div
             className={cn(
-              "mb-0.5 max-w-full rounded-lg border-l-2 border-line-strong bg-surface-2 px-2 py-1 text-[12px] text-muted",
+              "mb-0.5 max-w-full rounded-lg border-l-2 border-line-strong bg-surface-2 px-2 py-1 text-caption text-muted",
               isOwn ? "self-end" : "self-start",
             )}
           >
@@ -315,85 +609,201 @@ function Bubble({
           </div>
         )}
 
-        <div className="flex items-center gap-1">
-          {/* React button (left of own bubble / right of other) */}
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenReact();
-            }}
-            className={cn(
-              "rounded-full p-1 text-faint opacity-0 transition-opacity hover:text-ink group-hover:opacity-100",
-              isOwn ? "order-first" : "order-last",
-            )}
-            aria-label="React"
-          >
-            <SmilePlus className="h-4 w-4" />
-          </button>
+        <div className="relative flex items-center gap-1">
+          {/* Hover controls — only for real (sent) messages, hidden in select mode. */}
+          {actionable && !selectMode && (
+            <div
+              className={cn(
+                "flex items-center gap-0.5 self-center opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100",
+                menuOpen && "opacity-100",
+                isOwn ? "order-first" : "order-last",
+              )}
+            >
+              {!deleted && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenReact();
+                  }}
+                  className="rounded-full p-1 text-faint hover:text-ink"
+                  aria-label="React"
+                >
+                  <SmilePlus className="h-4 w-4" />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleMenu();
+                }}
+                className="rounded-full p-1 text-faint hover:text-ink"
+                aria-label="Message actions"
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </button>
+            </div>
+          )}
 
           <div
+            ref={bubbleRef}
             role="button"
             tabIndex={0}
-            onClick={onToggleTime}
+            onClick={selectMode ? undefined : onToggleTime}
+            onContextMenu={(e) => {
+              if (!actionable || selectMode) return;
+              e.preventDefault();
+              if (!menuOpen) onToggleMenu();
+            }}
+            onTouchStart={selectMode ? undefined : startPress}
+            onTouchEnd={cancelPress}
+            onTouchMove={cancelPress}
             className={cn(
-              "relative cursor-pointer rounded-[18px] px-3 py-2 text-[15px] leading-snug",
-              isOwn ? ownColor : "bg-surface-3 text-ink",
+              "relative cursor-pointer rounded-bubble px-3.5 py-2.5 text-body leading-snug",
+              deleted
+                ? "bg-surface-2 text-faint"
+                : isOwn
+                  ? ownColor
+                  : "bg-surface-3 text-ink",
             )}
           >
-            {atts.length > 0 && (
-              <div className={cn(text ? "mb-2" : "")}>
-                <Attachments attachments={atts} />
-              </div>
-            )}
-            {text ? <Linkified text={text} /> : null}
-            {!text && atts.length === 0 && (
-              <span className="opacity-70">{isEmail ? "📧" : "—"}</span>
-            )}
+            {deleted ? (
+              <span className="flex items-center gap-1.5 italic">
+                <Ban className="h-3.5 w-3.5 shrink-0" />
+                {text || "This message was deleted"}
+              </span>
+            ) : (
+              <>
+                {atts.length > 0 && (
+                  <div className={cn(text ? "mb-2" : "")}>
+                    <Attachments attachments={atts} messageId={message.id} isOwn={isOwn} />
+                  </div>
+                )}
+                {text ? <Linkified text={text} /> : null}
+                {!text && atts.length === 0 && (
+                  <span className="opacity-70">{isEmail ? "📧" : "—"}</span>
+                )}
+                {message.edited && (
+                  <span className="ml-1.5 align-baseline text-micro opacity-60">
+                    (edited)
+                  </span>
+                )}
 
-            {reactOpen && (
-              <div
-                className="absolute bottom-full z-20 mb-1 flex gap-1 rounded-full border border-line-strong bg-surface-2 px-2 py-1 shadow-lg"
-                onClick={(e) => e.stopPropagation()}
-              >
-                {QUICK_EMOJIS.map((emoji) => (
-                  <button
-                    key={emoji}
-                    type="button"
-                    onClick={() => onPickEmoji(emoji)}
-                    className="text-[18px] hover:scale-125"
+                {reactOpen && (
+                  <div
+                    className={cn(
+                      "absolute bottom-full z-20 mb-1 flex items-center gap-1 rounded-full border border-line-strong bg-surface-2 px-2 py-1 shadow-lg",
+                      isOwn ? "right-0" : "left-0",
+                    )}
+                    onClick={(e) => e.stopPropagation()}
                   >
-                    {emoji}
-                  </button>
-                ))}
-              </div>
+                    {QUICK_EMOJIS.map((emoji) => (
+                      <button
+                        key={emoji}
+                        type="button"
+                        onClick={() => onPickEmoji(emoji)}
+                        className="text-[18px] hover:scale-125"
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={onOpenPicker}
+                      className="ml-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-surface-3 text-faint hover:text-ink"
+                      aria-label="More emoji"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </button>
+                    {/* Reach the actions menu (Reply/Forward/…) on touch, where
+                        there's no hover affordance for the ⋮ button. */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleMenu();
+                      }}
+                      className="flex h-6 w-6 items-center justify-center rounded-full bg-surface-3 text-faint hover:text-ink"
+                      aria-label="Message actions"
+                    >
+                      <MoreHorizontal className="h-4 w-4" />
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </div>
-        </div>
 
-        <ReactionChips
-          message={message}
-          isOwn={isOwn}
-          myUserId={myUserId}
-          onToggle={onToggleReaction}
-        />
+          {/* Action menu (fixed-positioned portal, flips up/down by space). */}
+          {menuOpen && menuPos && (
+            <BubbleMenu
+              message={message}
+              isOwn={isOwn}
+              isEmail={isEmail}
+              hasText={Boolean(text)}
+              pos={menuPos}
+              onAction={onAction}
+              onClose={onToggleMenu}
+            />
+          )}
+        </div>
+        </div>
+      </div>
+
+      {/* Meta (reactions / See original / time) BELOW the bubble, aligned under
+          it — so the avatar sits next to the bubble, not next to "See original". */}
+      <div
+        className={cn(
+          "flex flex-col",
+          isOwn
+            ? "items-end"
+            : selectMode
+              ? "items-start pl-16"
+              : "items-start pl-9",
+        )}
+      >
+        {!deleted && (
+          <ReactionChips
+            message={message}
+            isOwn={isOwn}
+            myUserId={myUserId}
+            onOpen={onOpenReactors}
+          />
+        )}
 
         {canSeeOriginal && (
           <button
             type="button"
             onClick={() => onSeeOriginal(message)}
-            className={cn(
-              "mt-0.5 flex items-center gap-1 px-1 text-[11px] font-semibold text-link hover:underline",
-              isOwn ? "self-end" : "self-start",
-            )}
+            className="mt-0.5 flex items-center gap-1 px-1 text-micro font-semibold text-link hover:underline"
           >
             <FileText className="h-3 w-3" /> See original
           </button>
         )}
 
-        {showTime && (
-          <span className={cn("mt-0.5 block px-1 text-[10px] text-faint", isOwn ? "text-right" : "text-left")}>
-            {format(new Date(message.date), "h:mm a")}
+        {!deleted && (message.forwarded || message.isPrivate) && (
+          <div className="mt-0.5 flex gap-2 px-1 text-micro text-faint">
+            {message.forwarded && <span>↪ Forwarded</span>}
+            {message.isPrivate && <span>🔒 Private</span>}
+          </div>
+        )}
+
+        {(showTime || showStatus) && (
+          <span className="mt-0.5 flex items-center gap-1 px-1 text-micro text-faint">
+            {showTime && <span>{format(new Date(message.date), "h:mm a")}</span>}
+            {showStatus &&
+              (message.status === "failed" ? (
+                <button
+                  type="button"
+                  onClick={onRetry}
+                  className="font-semibold text-accent hover:underline"
+                >
+                  Failed — tap to retry
+                </button>
+              ) : (
+                <StatusTicks message={message} />
+              ))}
           </span>
         )}
       </div>
@@ -401,9 +811,28 @@ function Bubble({
   );
 }
 
+function TypingIndicator({ names }: { names: string[] }) {
+  const label =
+    names.length === 1
+      ? `${names[0]} is typing`
+      : names.length === 2
+        ? `${names[0]} and ${names[1]} are typing`
+        : "Several people are typing";
+  return (
+    <div className="flex items-center gap-2 px-6 pb-1 text-caption text-faint">
+      <span className="flex gap-0.5">
+        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-faint [animation-delay:-0.3s]" />
+        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-faint [animation-delay:-0.15s]" />
+        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-faint" />
+      </span>
+      <span className="truncate">{label}</span>
+    </div>
+  );
+}
+
 function InfoRow({ message }: { message: MailMessage }) {
   const text = (message.text ?? "").replace(/^GROUP-PLACEHOLDER:/, "").trim();
-  return <div className="my-1 text-center text-[12px] text-faint">{text || "—"}</div>;
+  return <div className="my-1 text-center text-caption text-faint">{text || "—"}</div>;
 }
 
 export function ConversationView({
@@ -423,31 +852,131 @@ export function ConversationView({
   recipientAddress?: string;
   isGroup?: boolean;
 }) {
-  const { data: fetched = [], isLoading, isError } = useThreadMessages(id);
+  const { data: fetched = [], isLoading, isError, error } = useThreadMessages(id);
   const { data: me } = useSession();
   const username = me?.username;
   const myUserId = me?.userId;
+
+  // Presence (1:1 chat only) + typing.
+  const recipientUsername =
+    !isEmail && !isGroup && recipientAddress
+      ? localPart(recipientAddress)
+      : undefined;
+  usePresenceFor(recipientUsername ? [recipientUsername] : []);
+  const online = useOnline(recipientUsername);
+  const lastSeen = useLastSeen(recipientUsername);
+  const typingNames = useTyping(topicId);
+  const emitTyping = useEmitTyping(topicId);
   const sendMsg = useSendMessage();
   const react = useReactToMessage(id);
   const unreact = useRemoveReaction(id);
+  const msgActions = useMessageActions(id);
+  const att = useComposerAttachments();
   const qc = useQueryClient();
+  const openCompose = useComposeModal((s) => s.open);
   const [sent, setSent] = useState<MailMessage[]>([]);
-  const [draft, setDraft] = useState("");
   const [original, setOriginal] = useState<MailMessage | null>(null);
   const [shownTimeId, setShownTimeId] = useState<string | null>(null);
   const [reactOpenId, setReactOpenId] = useState<string | null>(null);
+  const [pickerForId, setPickerForId] = useState<string | null>(null);
+  const [reactorsForId, setReactorsForId] = useState<string | null>(null);
+  const [infoForId, setInfoForId] = useState<string | null>(null);
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
+  const [replyingTo, setReplyingTo] = useState<MailMessage | null>(null);
+  // Multi-select mode for forwarding several messages at once.
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [confirm, setConfirm] = useState<
+    { kind: "forMe" | "forAll"; message: MailMessage } | null
+  >(null);
+  const [groupPanelOpen, setGroupPanelOpen] = useState(false);
+  const [profilePanelOpen, setProfilePanelOpen] = useState(false);
+  // Retry payloads for optimistic messages that failed to send.
+  const pendingPayloads = useRef<Map<string, SendMessageInput>>(new Map());
+  const localSeq = useRef(0);
+
+  // --- Scroll anchoring (WhatsApp-style: stick to bottom) ---
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const atBottomRef = useRef(true);
+  const didInitRef = useRef(false);
+  const [showJump, setShowJump] = useState(false);
+
+  const scrollToBottom = useCallback(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+    atBottomRef.current = true;
+    setShowJump(false);
+  }, []);
+
+  const onScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    atBottomRef.current = atBottom;
+    setShowJump((cur) => (cur === !atBottom ? cur : !atBottom));
+  }, []);
+
+  // New thread → reset anchoring so we jump to the latest message on open.
+  useEffect(() => {
+    didInitRef.current = false;
+    atBottomRef.current = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setShowJump(false);
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  }, [id]);
+
+  // Async content growth (images loading, receipt labels) → re-pin if at bottom.
+  useEffect(() => {
+    const inner = contentRef.current;
+    if (!inner || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      const el = scrollRef.current;
+      if (el && atBottomRef.current) el.scrollTop = el.scrollHeight;
+    });
+    ro.observe(inner);
+    return () => ro.disconnect();
+  }, []);
 
   useEffect(() => {
     if (!id) return;
-    markThreadSeen(id)
-      .then(() => {
-        qc.invalidateQueries({ queryKey: ["threads"] });
-        qc.invalidateQueries({ queryKey: ["chatThreads"] });
-      })
-      .catch(() => {});
-  }, [id, qc]);
+    // Clear the unread/bold styling INSTANTLY (the server `seen` write lags, so
+    // a refetch would keep it bold for seconds). Fire-and-forget the network.
+    markThreadReadInCache(qc, { threadId: id, topicId });
+    markThreadSeen(id).catch(() => {});
+  }, [id, topicId, qc]);
 
-  const messages = useMemo(() => [...fetched, ...sent], [fetched, sent]);
+  // Merge optimistic sends with server data, dropping any optimistic message
+  // the server has echoed back — matched EXACTLY by refId (idempotency key) so
+  // the optimistic bubble becomes the real one instantly with no duplicate flash.
+  const messages = useMemo(() => {
+    // Drop reaction reply-messages (isHidden) — they attach to the bubble as a
+    // chip, never as their own line (matches iOS/Android native).
+    const base = fetched.filter((f) => !f.isHidden);
+    if (!sent.length) return base;
+    const echoedRefs = new Set(
+      base.filter((f) => f.refId).map((f) => f.refId as string),
+    );
+    const pending = sent.filter((s) => !s.refId || !echoedRefs.has(s.refId));
+    return pending.length ? [...base, ...pending] : base;
+  }, [fetched, sent]);
+
+  // On first load jump instantly to the latest; afterwards keep pinned to the
+  // bottom when the user is already there (runs before paint → no flicker).
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (!didInitRef.current) {
+      if (messages.length) {
+        el.scrollTop = el.scrollHeight;
+        didInitRef.current = true;
+      }
+      return;
+    }
+    if (atBottomRef.current) el.scrollTop = el.scrollHeight;
+  }, [messages, id]);
 
   const byHeaderId = useMemo(() => {
     const m = new Map<string, MailMessage>();
@@ -457,15 +986,31 @@ export function ConversationView({
 
   const rows = useMemo(() => {
     const senderKey = (m: MailMessage) => m.from.address || m.from.name;
-    return messages.map((m, i) => {
+    const base = messages.map((m, i) => {
       const prev = messages[i - 1];
       const isOwn = isOwnMessage(m, username);
       const senderChanged = !prev || senderKey(prev) !== senderKey(m);
+      // Collapse consecutive messages from the same sender within 60s into a run.
+      const gap = prev ? +new Date(m.date) - +new Date(prev.date) : Infinity;
+      const startsRun = senderChanged || gap > 60_000;
       const dayChanged =
         !prev ||
         new Date(prev.date).toDateString() !== new Date(m.date).toDateString();
-      return { m, isOwn, showAvatar: senderChanged, showName: senderChanged, dayChanged };
+      return { m, isOwn, startsRun, dayChanged };
     });
+    return base.map((r) => ({
+      ...r,
+      showAvatar: r.startsRun,
+      showName: r.startsRun,
+    }));
+  }, [messages, username]);
+
+  const lastOutboundId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (!m.isInfoMessage && isOwnMessage(m, username)) return m.id;
+    }
+    return null;
   }, [messages, username]);
 
   const lastInbound = useMemo(
@@ -475,47 +1020,231 @@ export function ConversationView({
   const recipient =
     recipientAddress || lastInbound?.from.address || lastInbound?.from.name;
 
-  function send() {
-    const text = draft.trim();
-    if (!text) return;
+  const currentUserAddress = username ? `${username}${MAIL_DOMAIN}` : undefined;
+
+  // Group members derived from the conversation (union of from/to/cc + self).
+  // No GET-participants endpoint exists, so this is the authoritative set we
+  // can offer for participant management.
+  const groupMembers = useMemo<ThreadParticipant[]>(() => {
+    if (!isGroup) return [];
+    const map = new Map<string, ThreadParticipant>();
+    const add = (p?: ThreadParticipant) => {
+      if (!p?.address) return;
+      const k = p.address.toLowerCase();
+      if (!map.has(k)) map.set(k, { name: p.name, address: p.address });
+    };
+    for (const m of messages) {
+      if (m.isInfoMessage) continue;
+      add(m.from);
+      m.to?.forEach(add);
+      m.cc?.forEach(add);
+    }
+    if (currentUserAddress && !map.has(currentUserAddress.toLowerCase())) {
+      const full = [me?.firstName, me?.lastName].filter(Boolean).join(" ").trim();
+      map.set(currentUserAddress.toLowerCase(), {
+        name: full || username || "You",
+        address: currentUserAddress,
+      });
+    }
+    return [...map.values()];
+  }, [messages, isGroup, currentUserAddress, me, username]);
+
+  function doSend(localId: string, payload: SendMessageInput) {
+    pendingPayloads.current.set(localId, payload);
+    setSent((cur) =>
+      cur.map((m) => (m.id === localId ? { ...m, status: "sending" } : m)),
+    );
+    sendMsg.mutate(payload, {
+      onSuccess: () => {
+        pendingPayloads.current.delete(localId);
+        // Clear the "sending" tick; the refId dedup drops the optimistic copy
+        // the instant the server echo (with the same refId) lands — no flash,
+        // no timeout, no duplicate.
+        setSent((cur) =>
+          cur.map((m) => (m.id === localId ? { ...m, status: undefined } : m)),
+        );
+      },
+      onError: () =>
+        setSent((cur) =>
+          cur.map((m) => (m.id === localId ? { ...m, status: "failed" } : m)),
+        ),
+    });
+  }
+
+  // Called by MessageComposer with the trimmed text. Edit → PATCH; else send.
+  function onSubmit(text: string) {
+    if (editing) {
+      if (!text) return;
+      msgActions.edit.mutate({ messageId: editing.id, text });
+      setEditing(null);
+      return;
+    }
+
+    const dtos = att.readyDtos();
+    if (!text && dtos.length === 0) return;
+    const replyHeaderId = replyingTo?.headerId;
+    const localId =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `local-${localSeq.current++}`;
     setSent((cur) => [
       ...cur,
       {
-        id:
-          typeof crypto !== "undefined" && "randomUUID" in crypto
-            ? crypto.randomUUID()
-            : `local-${cur.length}`,
+        id: localId,
+        refId: localId,
         from: ME,
         to: [],
         date: new Date().toISOString(),
         outbound: true,
-        text,
+        text: text || undefined,
+        replyTo: replyHeaderId,
+        attachments: dtos.length ? dtosToMailAttachments(dtos) : undefined,
+        status: "sending",
       },
     ]);
-    setDraft("");
-    sendMsg.mutate({
+    att.clear();
+    setReplyingTo(null);
+    doSend(localId, {
+      refId: localId,
       text,
+      attachments: dtos.length ? dtos : undefined,
       isEmail,
       isChat: !isEmail,
       subject: isEmail && subject ? `Re: ${stripRe(subject)}` : undefined,
       topicId,
       threadId: id,
       toList: recipient ? [{ address: recipient }] : [],
+      replyTo: replyHeaderId,
     });
   }
 
+  function retryMessage(localId: string) {
+    const payload = pendingPayloads.current.get(localId);
+    if (payload) doSend(localId, payload);
+  }
+
+  function onMessageAction(a: MsgAction, m: MailMessage) {
+    switch (a) {
+      case "reply":
+        setEditing(null);
+        setReplyingTo(m);
+        break;
+      case "copy":
+        if (m.text) navigator.clipboard?.writeText(m.text).catch(() => {});
+        break;
+      case "edit":
+        setReplyingTo(null);
+        setEditing({ id: m.id, text: m.text ?? "" });
+        break;
+      case "forward":
+        // Enter multi-select with this message picked; the user can add more,
+        // then hit Forward in the selection bar.
+        setSelectMode(true);
+        setSelectedIds(new Set([m.id]));
+        break;
+      case "info":
+        setInfoForId(m.id);
+        break;
+      case "deleteForMe":
+        setConfirm({ kind: "forMe", message: m });
+        break;
+      case "deleteForAll":
+        setConfirm({ kind: "forAll", message: m });
+        break;
+    }
+  }
+
+  function toggleSelect(id: string) {
+    setSelectedIds((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function cancelSelect() {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  }
+
+  function forwardSelected() {
+    // Preserve chronological order; build previews so the modal shows them.
+    const picked = messages.filter((m) => selectedIds.has(m.id));
+    if (!picked.length) return;
+    const fwdSubject =
+      isEmail && subject
+        ? subject.toLowerCase().startsWith("fwd:")
+          ? subject
+          : `Fwd: ${subject}`
+        : "";
+    openCompose({
+      mode: "forward",
+      forwardMessageIds: picked.map((m) => m.id),
+      forwardPreviews: picked.map((m) => ({
+        id: m.id,
+        author: m.from.name,
+        text:
+          m.text?.trim() ||
+          (m.attachments?.length ? "📎 Attachment" : "…"),
+      })),
+      topicId,
+      isEmail,
+      subject: fwdSubject,
+    });
+    cancelSelect();
+  }
+
+  function runDelete() {
+    if (!confirm) return;
+    const m = confirm.message;
+    if (confirm.kind === "forMe") {
+      if (m.headerId) msgActions.deleteForMe.mutate([m.headerId]);
+      // Local-only optimistic message: just drop it from the unsent list.
+      else setSent((cur) => cur.filter((x) => x.id !== m.id));
+    } else {
+      msgActions.deleteForAll.mutate(m.id);
+    }
+    setConfirm(null);
+  }
+
+  // Optimistically patch one message's reactions in the open thread's cache so
+  // the chip appears/disappears instantly (the mutation then reconciles).
+  function patchReactions(
+    messageId: string,
+    update: (rs: MailReaction[]) => MailReaction[],
+  ) {
+    qc.setQueryData<MailMessage[]>(["messages", id], (list) =>
+      list
+        ? list.map((msg) =>
+            msg.id === messageId
+              ? { ...msg, reactions: update(msg.reactions ?? []) }
+              : msg,
+          )
+        : list,
+    );
+  }
+
   function toggleReaction(m: MailMessage, emoji: string) {
+    // Reactions require a real backend message; skip in-flight optimistic ones.
+    if (!m.headerId) return;
     const mine = (m.reactions ?? []).find(
       (r) => r.emoji === emoji && r.byUserId && r.byUserId === myUserId,
     );
-    if (mine && m.headerId) {
+    if (mine) {
+      patchReactions(m.id, (rs) => rs.filter((r) => r.id !== mine.id));
       unreact.mutate({ headerId: m.headerId, reactionId: mine.id });
     } else {
+      patchReactions(m.id, (rs) => [
+        ...rs,
+        { id: `local-react-${Date.now()}`, emoji, byUserId: myUserId },
+      ]);
       react.mutate({ messageId: m.id, emoji });
     }
   }
 
-  const backHref = isEmail ? "/mail/inbox" : "/chat";
+  const backHref = "/inbox";
+  const is1to1 = !isEmail && !isGroup && Boolean(recipientAddress);
 
   return (
     <div className="flex h-full flex-col">
@@ -527,21 +1256,106 @@ export function ConversationView({
         >
           <ArrowLeft className="h-5 w-5" />
         </Link>
-        <Avatar name={title} seed={recipientAddress || title} isEmail={isEmail} size={36} />
-        <div className="min-w-0">
-          <div className="truncate text-[16px] font-bold text-ink-strong">{title}</div>
-          {isEmail ? (
-            <div className="truncate text-[12px] text-faint">Email thread</div>
-          ) : isGroup ? (
-            <div className="truncate text-[12px] text-faint">Group chat</div>
-          ) : null}
-        </div>
+        {is1to1 ? (
+          <button
+            type="button"
+            onClick={() => setProfilePanelOpen(true)}
+            className="flex min-w-0 flex-1 items-center gap-3 text-left"
+            aria-label="Contact info"
+          >
+            <UserAvatar
+              name={title}
+              address={recipientAddress}
+              isEmail={isEmail}
+              size={36}
+              online={Boolean(recipientUsername && online)}
+            />
+            <div className="min-w-0">
+              <div className="truncate text-callout font-bold text-ink-strong">
+                {title}
+              </div>
+              <div className="truncate text-caption text-faint">
+                {online ? (
+                  <span className="text-email">online</span>
+                ) : lastSeen ? (
+                  `last seen ${lastSeenLabel(lastSeen)}`
+                ) : (
+                  `@${recipientUsername}`
+                )}
+              </div>
+            </div>
+          </button>
+        ) : (
+          <>
+            {isGroup && groupMembers.length >= 2 ? (
+              <UserAvatar
+                name={title}
+                people={groupMembers.map((m) => ({
+                  name: m.name,
+                  address: m.address,
+                }))}
+                isEmail={isEmail}
+                size={36}
+              />
+            ) : (
+              <Avatar
+                name={title}
+                seed={recipientAddress || title}
+                isEmail={isEmail}
+                size={36}
+                online={Boolean(recipientUsername && online)}
+              />
+            )}
+            <div className="min-w-0">
+              <div className="truncate text-callout font-bold text-ink-strong">
+                {title}
+              </div>
+              {isEmail ? (
+                <div className="truncate text-caption text-faint">Email thread</div>
+              ) : isGroup ? (
+                <button
+                  type="button"
+                  onClick={() => setGroupPanelOpen(true)}
+                  className="truncate text-left text-caption text-faint hover:text-ink"
+                >
+                  {groupMembers.length
+                    ? `${groupMembers.length} members · manage`
+                    : "Group chat"}
+                </button>
+              ) : null}
+            </div>
+          </>
+        )}
+        {is1to1 && (
+          <CallButtons
+            topicId={topicId}
+            recipientName={title}
+            recipientAddress={recipientAddress}
+          />
+        )}
+        {isGroup && (
+          <button
+            type="button"
+            onClick={() => setGroupPanelOpen(true)}
+            className="ml-auto rounded-lg p-1.5 text-muted hover:bg-surface hover:text-ink"
+            aria-label="Group info"
+          >
+            <Users className="h-5 w-5" />
+          </button>
+        )}
       </header>
 
       <div
-        className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-6 py-4"
+        ref={scrollRef}
+        onScroll={onScroll}
+        className="relative min-h-0 flex-1 overflow-y-auto"
+      >
+       <div
+        ref={contentRef}
+        className="flex min-h-full flex-col gap-2 px-6 py-4"
         onClick={() => {
           if (reactOpenId) setReactOpenId(null);
+          if (menuOpenId) setMenuOpenId(null);
         }}
       >
         {isLoading ? (
@@ -549,8 +1363,11 @@ export function ConversationView({
             <Loader2 className="h-5 w-5 animate-spin" />
           </div>
         ) : isError ? (
-          <div className="flex flex-1 items-center justify-center text-sm text-muted">
-            Couldn&apos;t load this conversation.
+          <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted">
+            {error instanceof ApiError &&
+            (error.status === 403 || error.status === 404)
+              ? "You don't have access to this conversation."
+              : "Couldn't load this conversation."}
           </div>
         ) : rows.length === 0 ? (
           <div className="flex flex-1 items-center justify-center text-sm text-faint">
@@ -558,9 +1375,12 @@ export function ConversationView({
           </div>
         ) : (
           rows.map(({ m, isOwn, showAvatar, showName, dayChanged }) => (
-            <div key={m.id}>
+            // Key by refId when present so the optimistic bubble and its server
+            // echo share a key (refId === the local id) — React reuses the DOM
+            // node instead of remount→flicker on the sending→delivered swap.
+            <div key={m.refId || m.id}>
               {dayChanged && (
-                <div className="my-2 text-center text-[11px] font-semibold uppercase tracking-wide text-faint">
+                <div className="my-2 text-center text-micro font-semibold uppercase tracking-wide text-faint">
                   {dayLabel(new Date(m.date))}
                 </div>
               )}
@@ -575,9 +1395,14 @@ export function ConversationView({
                   showAvatar={showAvatar}
                   showName={showName}
                   isGroup={isGroup}
+                  isLastOutbound={m.id === lastOutboundId}
                   showTime={shownTimeId === m.id}
                   myUserId={myUserId}
                   reactOpen={reactOpenId === m.id}
+                  menuOpen={menuOpenId === m.id}
+                  selectMode={selectMode}
+                  selected={selectedIds.has(m.id)}
+                  onToggleSelect={() => toggleSelect(m.id)}
                   onToggleTime={() =>
                     setShownTimeId((cur) => (cur === m.id ? null : m.id))
                   }
@@ -585,52 +1410,169 @@ export function ConversationView({
                   onOpenReact={() =>
                     setReactOpenId((cur) => (cur === m.id ? null : m.id))
                   }
+                  onToggleMenu={() => {
+                    setReactOpenId(null); // react bar and actions menu are exclusive
+                    setMenuOpenId((cur) => (cur === m.id ? null : m.id));
+                  }}
+                  onAction={(a) => onMessageAction(a, m)}
                   onPickEmoji={(emoji) => {
                     toggleReaction(m, emoji);
                     setReactOpenId(null);
                   }}
-                  onToggleReaction={(emoji) => toggleReaction(m, emoji)}
+                  onOpenPicker={() => {
+                    setReactOpenId(null);
+                    setPickerForId(m.id);
+                  }}
+                  onOpenReactors={() => setReactorsForId(m.id)}
+                  onRetry={() => retryMessage(m.id)}
                 />
               )}
             </div>
           ))
         )}
+       </div>
       </div>
 
-      <footer className="flex items-center gap-2 border-t border-line px-4 py-3">
-        <input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              send();
-            }
-          }}
-          placeholder={isEmail ? "Reply…" : "Message"}
-          className="h-[42px] flex-1 rounded-full border border-line-strong bg-canvas px-4 text-[15px] text-ink-strong outline-none placeholder:text-faint focus:border-muted"
-        />
-        <button
-          type="button"
-          onClick={send}
-          disabled={!draft.trim()}
-          className={cn(
-            "flex h-[42px] w-[42px] items-center justify-center rounded-full text-white transition-colors",
-            !draft.trim()
-              ? "cursor-not-allowed bg-surface-2 text-faint"
-              : isEmail
-                ? "bg-email hover:opacity-90"
-                : "bg-chat hover:opacity-90",
-          )}
-          aria-label="Send"
-        >
-          <SendHorizontal className="h-5 w-5" />
-        </button>
-      </footer>
+      {typingNames.length > 0 && <TypingIndicator names={typingNames} />}
+
+      <div className="relative">
+        {showJump && !selectMode && (
+          <button
+            type="button"
+            onClick={scrollToBottom}
+            aria-label="Jump to latest"
+            className="absolute -top-14 right-5 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-surface-3 text-ink shadow-lg ring-1 ring-line-strong transition-colors hover:bg-surface-2"
+          >
+            <ArrowDown className="h-5 w-5" />
+          </button>
+        )}
+        {selectMode ? (
+          <div className="flex items-center gap-3 border-t border-line px-4 py-3">
+            <button
+              type="button"
+              onClick={cancelSelect}
+              className="rounded-lg p-1.5 text-muted hover:bg-surface hover:text-ink"
+              aria-label="Cancel selection"
+            >
+              <X className="h-5 w-5" />
+            </button>
+            <span className="text-body font-semibold text-ink-strong">
+              {selectedIds.size} selected
+            </span>
+            <button
+              type="button"
+              disabled={selectedIds.size === 0}
+              onClick={forwardSelected}
+              className="ml-auto flex items-center gap-2 rounded-full bg-accent px-5 py-2 text-subhead font-semibold text-white transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Forward className="h-4 w-4" />
+              Forward
+            </button>
+          </div>
+        ) : (
+          <MessageComposer
+            threadId={id}
+            isEmail={isEmail}
+            att={att}
+            editing={editing}
+            replyingTo={replyingTo}
+            onSubmit={onSubmit}
+            onCancelEdit={() => setEditing(null)}
+            onCancelReply={() => setReplyingTo(null)}
+            emitTyping={emitTyping}
+          />
+        )}
+      </div>
+
+      <ConfirmDialog
+        open={confirm !== null}
+        danger
+        title={
+          confirm?.kind === "forAll"
+            ? "Unsend for everyone?"
+            : confirm?.message.headerId
+              ? "Delete for you?"
+              : "Discard message?"
+        }
+        body={
+          confirm?.kind === "forAll"
+            ? "This message will be removed for everyone in the conversation."
+            : confirm?.message.headerId
+              ? "This removes the message from your view only."
+              : "This unsent message will be discarded."
+        }
+        confirmLabel={
+          confirm?.kind === "forAll"
+            ? "Unsend"
+            : confirm?.message.headerId
+              ? "Delete"
+              : "Discard"
+        }
+        onConfirm={runDelete}
+        onCancel={() => setConfirm(null)}
+      />
 
       {original && (
         <OriginalOverlay message={original} onClose={() => setOriginal(null)} />
       )}
+
+      {groupPanelOpen && (
+        <GroupPanel
+          topicId={topicId ?? id}
+          threadId={id}
+          name={title}
+          members={groupMembers}
+          currentUserAddress={currentUserAddress}
+          onClose={() => setGroupPanelOpen(false)}
+        />
+      )}
+
+      {profilePanelOpen && recipientUsername && (
+        <ProfilePanel
+          username={recipientUsername}
+          name={title}
+          address={recipientAddress}
+          topicId={topicId ?? id}
+          onClose={() => setProfilePanelOpen(false)}
+        />
+      )}
+
+      {pickerForId && (
+        <EmojiPicker
+          onPick={(emoji) => {
+            const m = messages.find((x) => x.id === pickerForId);
+            if (m) toggleReaction(m, emoji);
+            setPickerForId(null);
+          }}
+          onClose={() => setPickerForId(null)}
+        />
+      )}
+
+      {reactorsForId &&
+        (() => {
+          const m = messages.find((x) => x.id === reactorsForId);
+          if (!m) return null;
+          return (
+            <ReactorSheet
+              message={m}
+              myUserId={myUserId}
+              onRemove={(reactionId) => {
+                if (m.headerId)
+                  unreact.mutate({ headerId: m.headerId, reactionId });
+              }}
+              onClose={() => setReactorsForId(null)}
+            />
+          );
+        })()}
+
+      {infoForId &&
+        (() => {
+          const m = messages.find((x) => x.id === infoForId);
+          if (!m) return null;
+          return (
+            <MessageInfoSheet message={m} onClose={() => setInfoForId(null)} />
+          );
+        })()}
     </div>
   );
 }

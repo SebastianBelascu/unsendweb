@@ -12,8 +12,9 @@
   --color-surface: #1c1b18; /* lighterBg */
   --color-surface-2: #252320; /* dark01 — settings rows, primary button */
   --color-surface-3: #2d2b28; /* dark02 — inbound bubbles */
-  --color-line: #1a1916; /* darkBorder — row separators */
-  --color-line-strong: #454340; /* lightBorder — search pill */
+  --color-line: #2a2825; /* row separators — visible on canvas */
+  --color-line-strong: #454340; /* lightBorder — search pill / inputs */
+  --color-surface-card: #1f1e1b; /* opaque card/section surface (replaces bg-surface/40) */
 
   /* Text */
   --color-ink-strong: #ffffff; /* unseen / active */
@@ -38,9 +39,41 @@
   --font-sans: var(--font-open-sans), "Open Sans", ui-sans-serif, system-ui,
     -apple-system, sans-serif;
 
+  /* Semantic type scale (native OpenSans parity). Namespaced so it never
+     overrides Tailwind's default text-sm/base/lg utilities. Each ships its
+     own line-height → utilities: text-micro … text-largetitle. */
+  --text-micro: 0.6875rem; /* 11 — receipts, edited, meta */
+  --text-micro--line-height: 0.875rem; /* 14 */
+  --text-caption: 0.75rem; /* 12 — timestamps, secondary meta */
+  --text-caption--line-height: 1rem; /* 16 */
+  --text-footnote: 0.8125rem; /* 13 — field labels, menu items */
+  --text-footnote--line-height: 1.125rem; /* 18 */
+  --text-subhead: 0.875rem; /* 14 — row preview, buttons */
+  --text-subhead--line-height: 1.25rem; /* 20 */
+  --text-body: 0.9375rem; /* 15 — bubbles, inputs, default */
+  --text-body--line-height: 1.3125rem; /* 21 */
+  --text-callout: 1rem; /* 16 — row name, conversation title */
+  --text-callout--line-height: 1.375rem; /* 22 */
+  --text-headline: 1.125rem; /* 18 — section / compose title */
+  --text-headline--line-height: 1.5rem; /* 24 */
+  --text-title: 1.25rem; /* 20 — small header title */
+  --text-title--line-height: 1.625rem; /* 26 */
+  --text-largetitle: 2.125rem; /* 34 — inbox large title */
+  --text-largetitle--line-height: 2.5625rem; /* 41 */
+
+  /* Elevation */
+  --color-surface-elevated: #1e1e2c;
+
+  /* Motion */
+  --duration-fast: 150ms;
+  --duration-slow: 250ms;
+  --ease-out: cubic-bezier(0.4, 0, 0.2, 1);
+
   /* Radii */
   --radius-bubble: 22px;
   --radius-card: 14px;
+  --radius-input: 14px;
+  --radius-pill: 9999px;
 }
 
 html,
@@ -54,6 +87,18 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+}
+
+/* Respect the OS "reduce motion" setting (accessibility). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* Thin, dark scrollbars to match the dark shell */

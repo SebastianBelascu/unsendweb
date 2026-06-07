@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
-import { Avatar } from "./Avatar";
+import { UserAvatar } from "./UserAvatar";
 import { searchUsers } from "@/lib/api/users";
 import { cn } from "@/lib/utils";
 
@@ -75,17 +75,17 @@ export function RecipientInput({
 
   return (
     <div className="relative flex items-start gap-3 border-b border-line px-6 py-3">
-      <span className="mt-1.5 w-12 shrink-0 text-[13px] text-faint">{label}</span>
+      <span className="mt-1.5 w-12 shrink-0 text-footnote text-faint">{label}</span>
       <div ref={boxRef} className="relative flex-1">
         <div className="flex flex-wrap items-center gap-1.5">
           {value.map((r) => (
             <span
               key={r.address}
-              className="flex items-center gap-1.5 rounded-full bg-surface-3 py-1 pl-1 pr-2 text-[13px] text-ink"
+              className="flex items-center gap-1.5 rounded-full bg-surface-3 py-1 pl-1 pr-2 text-footnote text-ink"
             >
-              <Avatar
+              <UserAvatar
                 name={r.name ?? r.address}
-                seed={r.address}
+                address={r.address}
                 isEmail
                 size={18}
                 showBadge={false}
@@ -112,7 +112,7 @@ export function RecipientInput({
             onFocus={() => setOpen(true)}
             onBlur={() => setTimeout(() => setOpen(false), 150)}
             placeholder={value.length === 0 ? "Search people…" : ""}
-            className="min-w-[120px] flex-1 bg-transparent py-1 text-[15px] text-ink-strong outline-none placeholder:text-faint"
+            className="min-w-[120px] flex-1 bg-transparent py-1 text-body text-ink-strong outline-none placeholder:text-faint"
           />
         </div>
 
@@ -126,18 +126,18 @@ export function RecipientInput({
                 onClick={() => add(r)}
                 className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-surface-3"
               >
-                <Avatar
+                <UserAvatar
                   name={r.name}
-                  seed={r.address}
+                  address={r.address}
                   isEmail={false}
                   size={28}
                   showBadge={false}
                 />
                 <span className="min-w-0">
-                  <span className="block truncate text-[14px] text-ink">
+                  <span className="block truncate text-subhead text-ink">
                     {r.name}
                   </span>
-                  <span className="block truncate text-[12px] text-faint">
+                  <span className="block truncate text-caption text-faint">
                     @{r.username}
                   </span>
                 </span>
@@ -149,7 +149,7 @@ export function RecipientInput({
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => add({ address: text.trim() })}
                 className={cn(
-                  "flex w-full items-center gap-2.5 px-3 py-2 text-left text-[14px] text-ink hover:bg-surface-3",
+                  "flex w-full items-center gap-2.5 px-3 py-2 text-left text-subhead text-ink hover:bg-surface-3",
                   suggestions.length > 0 && "border-t border-line",
                 )}
               >

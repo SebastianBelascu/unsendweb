@@ -91,7 +91,7 @@ export function EmailBody({ html, text }: { html?: string; text?: string }) {
 
   if (!html) {
     return (
-      <div className="whitespace-pre-wrap break-words text-[15px] leading-relaxed text-ink">
+      <div className="whitespace-pre-wrap break-words text-body leading-relaxed text-ink">
         {text}
       </div>
     );

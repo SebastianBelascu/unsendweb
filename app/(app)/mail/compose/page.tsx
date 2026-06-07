@@ -18,6 +18,7 @@ export default async function ComposePage({
     threadId?: string;
     tid?: string;
     type?: string;
+    fwd?: string;
   }>;
 }) {
   const sp = await searchParams;
@@ -27,9 +28,12 @@ export default async function ComposePage({
       : "new";
   const subject = typeof sp.s === "string" ? sp.s : "";
   const to = typeof sp.to === "string" ? sp.to : "";
-  // Replies/forwards keep the thread's type (email here); a new message
-  // defaults to email unless launched from "New chat" (?type=chat).
-  const isEmail = mode === "new" ? sp.type !== "chat" : true;
+  // Every mode honors ?type=chat; default is email when the param is absent.
+  const isEmail = sp.type !== "chat";
+  const forwardMessageIds =
+    mode === "forward" && typeof sp.fwd === "string" && sp.fwd
+      ? sp.fwd.split(",").filter(Boolean)
+      : undefined;
 
   const initial: ComposerInitial = {
     mode,
@@ -37,7 +41,9 @@ export default async function ComposePage({
     cc: "",
     subject:
       mode === "forward"
-        ? ensurePrefix("Fwd: ", subject)
+        ? isEmail
+          ? ensurePrefix("Fwd: ", subject)
+          : ""
         : mode === "new"
           ? subject
           : ensurePrefix("Re: ", subject),
@@ -45,6 +51,7 @@ export default async function ComposePage({
     isEmail,
     threadId: typeof sp.threadId === "string" ? sp.threadId : undefined,
     topicId: typeof sp.tid === "string" ? sp.tid : undefined,
+    forwardMessageIds,
   };
 
   return <Composer initial={initial} />;

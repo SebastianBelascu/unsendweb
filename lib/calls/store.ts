@@ -1,0 +1,127 @@
+import { create } from "zustand";
+
+/*
+  Ephemeral call state (one active call at a time). Durable entities (history)
+  live in TanStack Query; this store is only the live call + incoming ring.
+  State machine mirrors context/08-feature-calls.md §5.
+*/
+
+export type CallStatus =
+  | "idle"
+  | "calling" // outgoing: dialing
+  | "ringing" // outgoing: receiver's device acked
+  | "connecting" // receiver: answered, joining Agora
+  | "joined"; // active — a remote peer is on the channel, media flowing
+
+export interface ActiveCall {
+  uuid: string;
+  channelName: string;
+  topicId: string;
+  isVideo: boolean;
+  /** Other party (1:1 display). */
+  peerName: string;
+  peerAddress?: string;
+  isGroup: boolean;
+  groupName?: string;
+  /** true = we placed the call; false = we answered. */
+  outgoing: boolean;
+}
+
+export interface IncomingCall {
+  uuid: string;
+  channelName: string;
+  topicId: string;
+  isVideo: boolean;
+  callerName: string;
+  callerAddress?: string;
+}
+
+export interface RemotePeer {
+  uid: number;
+  hasVideo: boolean;
+  muted: boolean;
+}
+
+interface CallState {
+  status: CallStatus;
+  call: ActiveCall | null;
+  incoming: IncomingCall | null;
+  localMuted: boolean;
+  localVideoOn: boolean;
+  peers: Record<number, RemotePeer>;
+  error: string | null;
+
+  setStatus: (s: CallStatus) => void;
+  /** Begin an outgoing call (status → calling). */
+  startOutgoing: (call: ActiveCall) => void;
+  /** Begin a call we answered (status → connecting). */
+  startAnswered: (call: ActiveCall) => void;
+  setIncoming: (i: IncomingCall | null) => void;
+  setLocalMuted: (m: boolean) => void;
+  setLocalVideoOn: (v: boolean) => void;
+  upsertPeer: (uid: number, patch?: Partial<Omit<RemotePeer, "uid">>) => void;
+  removePeer: (uid: number) => void;
+  setError: (e: string | null) => void;
+  /** Tear down to idle (keeps `incoming` untouched). */
+  reset: () => void;
+}
+
+export const useCall = create<CallState>((set) => ({
+  status: "idle",
+  call: null,
+  incoming: null,
+  localMuted: false,
+  localVideoOn: false,
+  peers: {},
+  error: null,
+
+  setStatus: (status) => set({ status }),
+  startOutgoing: (call) =>
+    set({
+      call,
+      status: "calling",
+      localMuted: false,
+      localVideoOn: call.isVideo,
+      peers: {},
+      error: null,
+    }),
+  startAnswered: (call) =>
+    set({
+      call,
+      incoming: null,
+      status: "connecting",
+      localMuted: false,
+      localVideoOn: call.isVideo,
+      peers: {},
+      error: null,
+    }),
+  setIncoming: (incoming) => set({ incoming }),
+  setLocalMuted: (localMuted) => set({ localMuted }),
+  setLocalVideoOn: (localVideoOn) => set({ localVideoOn }),
+  upsertPeer: (uid, patch) =>
+    set((s) => {
+      const existing: RemotePeer = s.peers[uid] ?? {
+        uid,
+        hasVideo: false,
+        muted: false,
+      };
+      return { peers: { ...s.peers, [uid]: { ...existing, ...patch, uid } } };
+    }),
+  removePeer: (uid) =>
+    set((s) => {
+      if (!s.peers[uid]) return {};
+      const next = { ...s.peers };
+      delete next[uid];
+      return { peers: next };
+    }),
+  setError: (error) => set({ error }),
+  reset: () =>
+    set({
+      status: "idle",
+      call: null,
+      localMuted: false,
+      localVideoOn: false,
+      peers: {},
+      error: null,
+    }),
+}));

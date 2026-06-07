@@ -1,4 +1,5 @@
 import { getDeviceId } from "./device";
+import { useRealtime } from "../realtime/store";
 
 /*
   Client HTTP wrapper. All calls go to the same-origin BFF proxy (/api/backend),
@@ -66,9 +67,15 @@ export async function apiFetch<T>(
 
 export const apiGet = <T>(path: string) => apiFetch<T>(path);
 
-export const apiSend = <T>(path: string, method: string, body?: unknown) =>
-  apiFetch<T>(path, {
+export const apiSend = <T>(path: string, method: string, body?: unknown) => {
+  const headers: Record<string, string> = {};
+  if (body !== undefined) headers["content-type"] = "application/json";
+  // Tag writes with our socket id so the backend can skip echoing to us.
+  const socketId = useRealtime.getState().socket?.id;
+  if (socketId) headers["x-socket-id"] = socketId;
+  return apiFetch<T>(path, {
     method,
-    headers: body !== undefined ? { "content-type": "application/json" } : undefined,
+    headers: Object.keys(headers).length ? headers : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
+};

@@ -84,9 +84,11 @@ export function mapThread(t: BackendThread): ThreadListItem {
     preview,
     updatedAt: t.updatedAt || lm?.createdAt || new Date(0).toISOString(),
     isEmail: Boolean(t.isEmail),
+    isGroup: Boolean(t.isGroup),
     // Unseen when the last message is not ours and not explicitly seen
-    // (undefined seen counts as unread, matching iOS).
-    unread: Boolean(lm && lm.seen !== true && !lm.outbound),
+    // (undefined seen counts as unread, matching iOS). Muted threads never
+    // contribute to the unread badge.
+    unread: Boolean(lm && lm.seen !== true && !lm.outbound && !t.isSilent),
     isPinned: t.isPinned,
     isBookmarked: t.isBookmarked,
     isSilent: t.isSilent,
@@ -102,11 +104,15 @@ export function mapThread(t: BackendThread): ThreadListItem {
 export function mapMessage(m: BackendMessage): MailMessage {
   return {
     id: m.messageId || m._id || `${m.createdAt ?? ""}-${oneLine(m.text).slice(0, 8)}`,
+    refId: m.refId ?? undefined,
     headerId: m.headerId,
     replyTo: m.replyTo,
     from: mapParticipant(m.from),
     to: (m.to ?? []).map(mapParticipant),
     cc: (m.cc ?? []).map(mapParticipant),
+    bcc: (m.bcc ?? []).map(mapParticipant),
+    forwarded: Boolean(m.forwarded),
+    isPrivate: Boolean(m.isPrivate),
     reactions: (m.reactions ?? []).map((r) => ({
       id: r.id,
       emoji: r.reaction,
@@ -117,8 +123,13 @@ export function mapMessage(m: BackendMessage): MailMessage {
     html: m.hasHtml && m.html ? m.html : undefined,
     hasHtml: Boolean(m.hasHtml || m.html),
     isInfoMessage: Boolean(m.isInfoMessage),
+    isHidden: Boolean(m.isHidden),
     text: m.text || undefined,
     outbound: Boolean(m.outbound),
+    isDelivered: Boolean(m.isDelivered),
+    isRead: Boolean(m.isRead),
+    edited: Boolean(m.edited),
+    isDeleted: Boolean(m.isDeleted),
     attachments: (m.attachments ?? []).map((a, i) => {
       const title = a.title || "attachment";
       return {

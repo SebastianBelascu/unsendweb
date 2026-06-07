@@ -6,6 +6,7 @@ export function ThreadsList({
   emptyLabel,
   filter,
   currentUsername,
+  activeId,
   selecting = false,
   selectedIds,
   onToggleSelect,
@@ -14,6 +15,7 @@ export function ThreadsList({
   emptyLabel: string;
   filter?: MailFilter;
   currentUsername?: string;
+  activeId?: string;
   selecting?: boolean;
   selectedIds?: Set<string>;
   onToggleSelect?: (id: string) => void;
@@ -28,12 +30,13 @@ export function ThreadsList({
 
   return (
     <ul className="flex flex-col">
-      {threads.map((t, i) => (
-        <li key={t.id} className={i === 0 ? "" : "border-t border-line"}>
+      {threads.map((t) => (
+        <li key={t.id}>
           <ThreadCard
             thread={t}
             filter={filter}
             currentUsername={currentUsername}
+            active={t.id === activeId}
             selecting={selecting}
             selected={selectedIds?.has(t.id)}
             onToggleSelect={() => onToggleSelect?.(t.id)}

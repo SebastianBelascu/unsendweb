@@ -100,6 +100,15 @@ export async function sendCode(phone: string) {
   );
 }
 
+/** Re-send the signup OTP by username (POST /auth/resend-verification-code). */
+export async function resendVerificationCode(username: string) {
+  return apiSend<{ success: boolean; message: string }>(
+    "/auth/resend-verification-code",
+    "POST",
+    { username },
+  );
+}
+
 export async function verifyRegistration(
   phone: string,
   code: string,

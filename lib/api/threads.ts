@@ -51,6 +51,26 @@ export function useThreadsInfinite(filter: MailFilter) {
   });
 }
 
+/**
+ * Pinned threads. The backend excludes pinned threads from the `inbox` filter
+ * (they live in a separate PINNED bucket), so we fetch them separately and the
+ * list prepends them — otherwise pinning a chat makes it vanish.
+ */
+export async function fetchPinnedThreads(): Promise<ThreadListItem[]> {
+  const res = await apiGet<ThreadsResponse>(
+    `/threads/filter/isPinned/page/1/size/50`,
+  );
+  return (res?.data ?? []).map(mapThread);
+}
+
+export function usePinnedThreads() {
+  return useQuery({
+    queryKey: ["threads", "pinned"],
+    queryFn: fetchPinnedThreads,
+    refetchInterval: 20_000,
+  });
+}
+
 /** Chat inbox: separate cache key; filters the inbox to non-email threads. */
 export function useChatThreads() {
   return useQuery({
@@ -71,6 +91,51 @@ export async function updateThreads(
   update: boolean,
 ): Promise<unknown> {
   return apiSend("/threads/update", "PUT", { threadIds, updateType, update });
+}
+
+/** Rename a group (PUT /chat/:topicId — the `subject` field carries the name). */
+export async function updateChatName(
+  topicId: string,
+  subject: string,
+): Promise<unknown> {
+  return apiSend(`/chat/${topicId}`, "PUT", { subject });
+}
+
+/** Replace the full participant list (PUT /chat/:topicId/participants). */
+export async function updateChatParticipants(
+  topicId: string,
+  participants: string[],
+): Promise<unknown> {
+  return apiSend(`/chat/${topicId}/participants`, "PUT", { participants });
+}
+
+/** Leave a group chat (PUT /chat/:topicId/leave). */
+export async function leaveChat(topicId: string): Promise<unknown> {
+  return apiSend(`/chat/${topicId}/leave`, "PUT");
+}
+
+/** Group-management mutations for one topic, all refreshing the thread caches. */
+export function useGroupActions(topicId: string, threadId?: string) {
+  const qc = useQueryClient();
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["threads"] });
+    qc.invalidateQueries({ queryKey: ["chatThreads"] });
+    if (threadId) qc.invalidateQueries({ queryKey: ["messages", threadId] });
+  };
+  const rename = useMutation({
+    mutationFn: (subject: string) => updateChatName(topicId, subject),
+    onSuccess: invalidate,
+  });
+  const setParticipants = useMutation({
+    mutationFn: (participants: string[]) =>
+      updateChatParticipants(topicId, participants),
+    onSuccess: invalidate,
+  });
+  const leave = useMutation({
+    mutationFn: () => leaveChat(topicId),
+    onSuccess: invalidate,
+  });
+  return { rename, setParticipants, leave };
 }
 
 const FLAG_KEY: Record<string, keyof ThreadListItem> = {
@@ -126,7 +191,9 @@ export function useThreadAction(filter: MailFilter) {
     },
 
     onSettled: () => {
-      qc.invalidateQueries({ queryKey: key });
+      // Invalidate every thread list (inbox + pinned + other filters): pinning
+      // moves a thread between the inbox and pinned buckets server-side.
+      qc.invalidateQueries({ queryKey: ["threads"] });
     },
   });
 }

@@ -24,6 +24,9 @@ async function handle(
   const accept = req.headers.get("accept");
   if (accept) headers["accept"] = accept;
   if (at) headers["authorization"] = `Bearer ${at}`;
+  // Forward the originating socket id so the backend can suppress self-echo.
+  const socketId = req.headers.get("x-socket-id");
+  if (socketId) headers["x-socket-id"] = socketId;
 
   const hasBody = req.method !== "GET" && req.method !== "HEAD";
   const body = hasBody ? await req.arrayBuffer() : undefined;

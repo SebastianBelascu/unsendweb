@@ -1,10 +1,13 @@
 import { Mail, MessageCircle } from "lucide-react";
 import { avatarForeground, avatarGradient, initials } from "@/lib/avatar";
 import { cn } from "@/lib/utils";
+import { AvatarImg } from "./AvatarImg";
 
 export interface AvatarPerson {
   name?: string;
   address?: string;
+  /** Resolved photo URL (UserAvatar fills this in for group stacks). */
+  imageUrl?: string;
 }
 
 interface AvatarProps {
@@ -12,12 +15,26 @@ interface AvatarProps {
   /** Stable seed for the color (the contact's address). Defaults to `name`. */
   seed?: string;
   favicon?: string;
+  /** Uploaded avatar image (takes precedence over the gradient). */
+  imageUrl?: string;
   isEmail?: boolean;
   size?: number;
   showBadge?: boolean;
+  /** Green online dot (presence). */
+  online?: boolean;
   /** 2+ people (and no favicon) → stacked group avatar. */
   people?: AvatarPerson[];
   className?: string;
+}
+
+function OnlineDot({ size }: { size: number }) {
+  const d = Math.max(8, Math.round(size * 0.26));
+  return (
+    <span
+      className="absolute -right-0.5 -top-0.5 rounded-full border-2 border-canvas bg-email"
+      style={{ width: d, height: d }}
+    />
+  );
 }
 
 function TypeBadge({ isEmail, badge }: { isEmail: boolean; badge: number }) {
@@ -45,17 +62,17 @@ function Circle({
   seed,
   label,
   size,
+  imageUrl,
 }: {
   seed: string;
   label: string;
   size: number;
+  imageUrl?: string;
 }) {
-  return (
+  const gradient = (
     <div
-      className="flex items-center justify-center rounded-full font-bold ring-2 ring-canvas"
+      className="flex h-full w-full items-center justify-center rounded-full font-bold"
       style={{
-        width: size,
-        height: size,
         background: avatarGradient(seed),
         color: avatarForeground(seed),
         fontSize: size * 0.4,
@@ -64,20 +81,34 @@ function Circle({
       {label}
     </div>
   );
+  return (
+    <div
+      className="overflow-hidden rounded-full ring-2 ring-canvas"
+      style={{ width: size, height: size }}
+    >
+      {imageUrl ? (
+        <AvatarImg src={imageUrl} alt={label} size={size} fallback={gradient} />
+      ) : (
+        gradient
+      )}
+    </div>
+  );
 }
 
 export function Avatar({
   name,
   seed,
   favicon,
+  imageUrl,
   isEmail = true,
   size = 56,
   showBadge = true,
+  online = false,
   people,
   className,
 }: AvatarProps) {
   const badge = Math.round(size * 0.42);
-  const stacked = !favicon && people && people.length >= 2;
+  const stacked = !favicon && !imageUrl && people && people.length >= 2;
 
   if (stacked) {
     const s = Math.round(size * 0.66);
@@ -98,6 +129,7 @@ export function Avatar({
               seed={b.address || b.name || "?"}
               label={initials(b.name || b.address || "?")}
               size={s}
+              imageUrl={b.imageUrl}
             />
           )}
         </div>
@@ -106,18 +138,34 @@ export function Avatar({
             seed={a.address || a.name || "?"}
             label={initials(a.name || a.address || "?")}
             size={s}
+            imageUrl={a.imageUrl}
           />
         </div>
         {showBadge && <TypeBadge isEmail={isEmail} badge={badge} />}
+        {online ? <OnlineDot size={size} /> : null}
       </div>
     );
   }
 
   const key = seed || name;
+  const gradient = (
+    <div
+      className="flex h-full w-full items-center justify-center rounded-full font-bold"
+      style={{
+        background: avatarGradient(key),
+        color: avatarForeground(key),
+        fontSize: size * 0.38,
+      }}
+    >
+      {initials(name)}
+    </div>
+  );
 
   return (
     <div className={cn("relative shrink-0", className)} style={{ width: size, height: size }}>
-      {favicon ? (
+      {imageUrl ? (
+        <AvatarImg src={imageUrl} alt={name} size={size} fallback={gradient} />
+      ) : favicon ? (
         <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-full bg-surface-2">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
@@ -128,18 +176,10 @@ export function Avatar({
           />
         </div>
       ) : (
-        <div
-          className="flex h-full w-full items-center justify-center rounded-full font-bold"
-          style={{
-            background: avatarGradient(key),
-            color: avatarForeground(key),
-            fontSize: size * 0.38,
-          }}
-        >
-          {initials(name)}
-        </div>
+        gradient
       )}
       {showBadge && <TypeBadge isEmail={isEmail} badge={badge} />}
+        {online ? <OnlineDot size={size} /> : null}
     </div>
   );
 }
