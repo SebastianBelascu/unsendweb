@@ -7,6 +7,7 @@ import { useRealtime } from "@/lib/realtime/store";
 import { useCall } from "@/lib/calls/store";
 import { agora } from "@/lib/calls/AgoraService";
 import { teardown } from "@/lib/calls/controller";
+import { generateAgoraUid } from "@/lib/calls/agoraUid";
 import { IncomingCallModal } from "./IncomingCallModal";
 import { CallScreen } from "./CallScreen";
 
@@ -18,6 +19,7 @@ import { CallScreen } from "./CallScreen";
 export function CallHost() {
   const { data: me } = useSession();
   const callerId = me?.userId;
+  const myUsername = me?.username;
   const socket = useRealtime((s) => s.socket);
   const incoming = useCall((s) => s.incoming);
   const status = useCall((s) => s.status);
@@ -43,12 +45,17 @@ export function CallHost() {
       topicId?: string;
       text?: string;
       from?: { name?: string; address?: string };
+      to?: unknown[];
     }) => {
       if (!msg?.callUUID || !msg?.channelName) return;
       const st = useCall.getState();
       if (st.status !== "idle" || st.incoming) return; // already busy
       const topicId =
         msg.topicId || msg.channelName.replace(/^call_/, "");
+      // The call message's `to` is the full participant list — 2 for a 1:1 chat,
+      // ≥3 for a group. The authoritative isGroup/groupName arrive from
+      // /calls/start when we answer; this just labels the ring.
+      const isGroup = Array.isArray(msg.to) && msg.to.length >= 3;
       st.setIncoming({
         uuid: msg.callUUID,
         channelName: msg.channelName,
@@ -56,6 +63,7 @@ export function CallHost() {
         isVideo: String(msg.text ?? "").toLowerCase().includes("video"),
         callerName: msg.from?.name || "Unknown",
         callerAddress: msg.from?.address,
+        isGroup,
       });
       // Tell the caller our device received the invite (caller → ringing).
       socket.emit("call-received", {
@@ -88,15 +96,54 @@ export function CallHost() {
       }
     };
 
+    // Our own screen uid — ignore echoes of our own share (the main client
+    // already filters it at the media layer; this avoids a store phantom).
+    const myScreenUid = myUsername
+      ? generateAgoraUid(`${myUsername}#screen`)
+      : null;
+
+    const isForCall = (d: { callUUID?: string; channelName?: string }) => {
+      const st = useCall.getState();
+      return Boolean(
+        st.call &&
+          (st.call.uuid === d?.callUUID ||
+            st.call.channelName === d?.channelName),
+      );
+    };
+
+    const onScreenStarted = (d: {
+      callUUID?: string;
+      channelName?: string;
+      screenUid?: number;
+    }) => {
+      if (!d?.screenUid || d.screenUid === myScreenUid || !isForCall(d)) return;
+      // Reinforce classification; the actual stream arrives via Agora publish.
+      useCall.getState().upsertPeer(d.screenUid, { isScreen: true });
+    };
+
+    const onScreenStopped = (d: {
+      callUUID?: string;
+      channelName?: string;
+      screenUid?: number;
+    }) => {
+      if (!d?.screenUid || d.screenUid === myScreenUid || !isForCall(d)) return;
+      // Snappy hide; the screen connection's `user-left` also cleans this up.
+      useCall.getState().removePeer(d.screenUid);
+    };
+
     socket.on("create", onCreate);
     socket.on("call-received", onReceived);
     socket.on("call-ended", onEnded);
+    socket.on("screen-share-started", onScreenStarted);
+    socket.on("screen-share-stopped", onScreenStopped);
     return () => {
       socket.off("create", onCreate);
       socket.off("call-received", onReceived);
       socket.off("call-ended", onEnded);
+      socket.off("screen-share-started", onScreenStarted);
+      socket.off("screen-share-stopped", onScreenStopped);
     };
-  }, [socket, callerId]);
+  }, [socket, callerId, myUsername]);
 
   // Closing the tab ends the call (best-effort, fire-and-forget).
   useEffect(() => {

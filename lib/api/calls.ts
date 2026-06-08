@@ -88,6 +88,26 @@ export function markCallReceived(uuid: string): Promise<unknown> {
   return apiSend(`/calls/${encodeURIComponent(uuid)}/received`, "POST", {});
 }
 
+/** Numeric screen-share uid + RTC token bound to it, for the call channel. */
+export interface ScreenShareToken {
+  uid: number;
+  token: string;
+  channelName: string;
+}
+
+/**
+ * Mint a screen-share token for the current call. The uid is the deterministic
+ * `generateAgoraUid("<username>#screen")` — the same hash clients use to label a
+ * joining uid as someone's screen. Requester must be a participant of the call.
+ */
+export function getScreenShareToken(uuid: string): Promise<ScreenShareToken> {
+  return apiSend<ScreenShareToken>(
+    `/calls/${encodeURIComponent(uuid)}/screen-share-token`,
+    "POST",
+    {},
+  );
+}
+
 export function updateCallParticipant(
   uuid: string,
   username: string,

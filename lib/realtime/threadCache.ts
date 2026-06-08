@@ -1,6 +1,7 @@
 import type { InfiniteData, QueryClient } from "@tanstack/react-query";
 import type { ThreadsPage } from "@/lib/api/threads";
 import type { ThreadListItem } from "@/lib/types";
+import { markBumped } from "./optimistic-bumps";
 
 /*
   Optimistic conversation-list updates. The backend emits the socket `create`
@@ -30,6 +31,10 @@ export function bumpThread(
 ): boolean {
   const { threadId, topicId, outbound } = opts;
   if (!threadId && !topicId) return false;
+
+  // Protect this bump from a stale refetch for a short window (see
+  // optimistic-bumps + the threads-query structuralSharing).
+  markBumped(threadId, topicId);
 
   const preview = (opts.preview || "").replace(/\s+/g, " ").trim();
   const updatedAt = new Date().toISOString();

@@ -36,6 +36,8 @@ export interface ThreadListItem {
   isEmail: boolean;
   unread: boolean;
   isGroup?: boolean;
+  /** Group chat name, kept separate so `participants` holds the real members. */
+  groupName?: string;
   isPinned?: boolean;
   isBookmarked?: boolean;
   isSilent?: boolean;

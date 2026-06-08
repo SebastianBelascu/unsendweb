@@ -13,6 +13,12 @@ export type CallStatus =
   | "connecting" // receiver: answered, joining Agora
   | "joined"; // active — a remote peer is on the channel, media flowing
 
+/** A participant in the call roster (used to label tiles + map Agora uids). */
+export interface CallRosterEntry {
+  name: string;
+  address?: string;
+}
+
 export interface ActiveCall {
   uuid: string;
   channelName: string;
@@ -23,6 +29,8 @@ export interface ActiveCall {
   peerAddress?: string;
   isGroup: boolean;
   groupName?: string;
+  /** Full participant roster (groups) — maps Agora uids → names. */
+  roster: CallRosterEntry[];
   /** true = we placed the call; false = we answered. */
   outgoing: boolean;
 }
@@ -34,12 +42,16 @@ export interface IncomingCall {
   isVideo: boolean;
   callerName: string;
   callerAddress?: string;
+  isGroup?: boolean;
+  groupName?: string;
 }
 
 export interface RemotePeer {
   uid: number;
   hasVideo: boolean;
   muted: boolean;
+  /** This peer is a screen-share stream (rendered large), not a camera. */
+  isScreen?: boolean;
 }
 
 interface CallState {
@@ -48,6 +60,7 @@ interface CallState {
   incoming: IncomingCall | null;
   localMuted: boolean;
   localVideoOn: boolean;
+  localScreenOn: boolean;
   peers: Record<number, RemotePeer>;
   error: string | null;
 
@@ -59,6 +72,7 @@ interface CallState {
   setIncoming: (i: IncomingCall | null) => void;
   setLocalMuted: (m: boolean) => void;
   setLocalVideoOn: (v: boolean) => void;
+  setLocalScreenOn: (v: boolean) => void;
   upsertPeer: (uid: number, patch?: Partial<Omit<RemotePeer, "uid">>) => void;
   removePeer: (uid: number) => void;
   setError: (e: string | null) => void;
@@ -72,6 +86,7 @@ export const useCall = create<CallState>((set) => ({
   incoming: null,
   localMuted: false,
   localVideoOn: false,
+  localScreenOn: false,
   peers: {},
   error: null,
 
@@ -82,6 +97,7 @@ export const useCall = create<CallState>((set) => ({
       status: "calling",
       localMuted: false,
       localVideoOn: call.isVideo,
+      localScreenOn: false,
       peers: {},
       error: null,
     }),
@@ -92,12 +108,14 @@ export const useCall = create<CallState>((set) => ({
       status: "connecting",
       localMuted: false,
       localVideoOn: call.isVideo,
+      localScreenOn: false,
       peers: {},
       error: null,
     }),
   setIncoming: (incoming) => set({ incoming }),
   setLocalMuted: (localMuted) => set({ localMuted }),
   setLocalVideoOn: (localVideoOn) => set({ localVideoOn }),
+  setLocalScreenOn: (localScreenOn) => set({ localScreenOn }),
   upsertPeer: (uid, patch) =>
     set((s) => {
       const existing: RemotePeer = s.peers[uid] ?? {
@@ -121,6 +139,7 @@ export const useCall = create<CallState>((set) => ({
       call: null,
       localMuted: false,
       localVideoOn: false,
+      localScreenOn: false,
       peers: {},
       error: null,
     }),

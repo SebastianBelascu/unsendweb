@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { installGlobalErrorHandlers } from "@/lib/observability";
+import { useTheme } from "@/lib/theme-store";
 
 /**
  * Client-side providers. Server entities flow through TanStack Query v5
@@ -36,6 +37,12 @@ export function Providers({ children }: { children: React.ReactNode }) {
   // Capture uncaught errors / rejections app-wide (returns its own cleanup).
   useEffect(() => {
     return installGlobalErrorHandlers();
+  }, []);
+
+  // Sync the theme store with the persisted choice (the inline script in the
+  // layout already applied it pre-paint; this keeps the toggle's state in sync).
+  useEffect(() => {
+    useTheme.getState().init();
   }, []);
 
   // Offline-first: hydrate the cache from localStorage on mount, then persist

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { SendHorizontal, X } from "lucide-react";
 import {
   AttachButton,
@@ -39,6 +39,7 @@ export function MessageComposer({
   emitTyping: (typing: boolean) => void;
 }) {
   const [draft, setDraft] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Load the saved draft on thread change; load the message text when entering
   // edit mode, and restore the saved draft when leaving it.
@@ -46,6 +47,15 @@ export function MessageComposer({
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setDraft(editing ? editing.text : loadDraft(threadId));
   }, [threadId, editing]);
+
+  // Auto-grow the textarea to fit its content (wrapping onto multiple lines)
+  // up to a max height, after which it scrolls — never an infinite single line.
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
+  }, [draft]);
 
   const attachments = att.readyDtos();
   const canSend = editing
@@ -108,9 +118,10 @@ export function MessageComposer({
 
       <AttachmentTray items={att.pending} onRemove={att.remove} />
 
-      <footer className="relative flex items-center gap-1 px-3 py-3">
+      <footer className="relative flex items-end gap-1 px-3 py-3">
         <AttachButton onFiles={att.addFiles} />
-        <input
+        <textarea
+          ref={textareaRef}
           value={draft}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={(e) => {
@@ -119,8 +130,9 @@ export function MessageComposer({
               handleSend();
             }
           }}
+          rows={1}
           placeholder={isEmail ? "Reply…" : "Message"}
-          className="h-[42px] flex-1 rounded-pill border border-line-strong bg-surface-2 px-4 text-body text-ink-strong outline-none transition-colors placeholder:text-faint focus:border-muted"
+          className="max-h-[140px] min-h-[42px] flex-1 resize-none overflow-y-auto rounded-3xl border border-line-strong bg-surface-2 px-4 py-2.5 text-body leading-snug text-ink-strong outline-none transition-colors placeholder:text-faint focus:border-muted"
         />
         {editing || canSend || draft.trim() ? (
           <button

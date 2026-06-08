@@ -5,19 +5,23 @@ import { useSession } from "@/lib/api/account";
 import { useCall } from "@/lib/calls/store";
 import { placeCall } from "@/lib/calls/controller";
 import { localPart } from "@/lib/identity";
+import { cn } from "@/lib/utils";
 
 /**
- * Voice/video call buttons for a 1:1 chat header. Starting a call inside the
- * click handler satisfies the browser's getUserMedia gesture requirement.
+ * Voice/video call buttons for a chat header. Starting a call inside the click
+ * handler satisfies the browser's getUserMedia gesture requirement. `className`
+ * controls placement (1:1 pushes them to the right; groups sit next to the name).
  */
 export function CallButtons({
   topicId,
   recipientName,
   recipientAddress,
+  className = "ml-auto",
 }: {
   topicId?: string;
   recipientName: string;
   recipientAddress?: string;
+  className?: string;
 }) {
   const { data: me } = useSession();
   const status = useCall((s) => s.status);
@@ -37,7 +41,7 @@ export function CallButtons({
   }
 
   return (
-    <div className="ml-auto flex items-center gap-1">
+    <div className={cn("flex items-center gap-1", className)}>
       <button
         type="button"
         aria-label="Voice call"

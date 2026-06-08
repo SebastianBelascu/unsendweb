@@ -26,6 +26,7 @@ import { getStoredAvatar, uploadAvatar } from "@/lib/api/avatar";
 import { selfAvatarUrl } from "@/lib/avatar-url";
 import { useRealtime } from "@/lib/realtime/store";
 import { useComposeModal } from "@/lib/compose-modal";
+import { useTheme } from "@/lib/theme-store";
 import { logout, type SessionUser } from "@/lib/api/auth";
 
 const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? "0.1.0";
@@ -277,6 +278,27 @@ function ProfileSection({ user }: { user: SessionUser | null }) {
           )}
         </div>
       </form>
+    </Section>
+  );
+}
+
+function AppearanceSection() {
+  const theme = useTheme((s) => s.theme);
+  const setTheme = useTheme((s) => s.setTheme);
+  return (
+    <Section title="Appearance">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-subhead text-ink">Dark mode</div>
+          <div className="mt-0.5 text-footnote text-faint">
+            Switch between the light and dark look.
+          </div>
+        </div>
+        <Toggle
+          checked={theme === "dark"}
+          onChange={(v) => setTheme(v ? "dark" : "light")}
+        />
+      </div>
     </Section>
   );
 }
@@ -602,6 +624,7 @@ export function SettingsScreen() {
           ) : (
             <>
               <ProfileSection user={user ?? null} />
+              <AppearanceSection />
               <PrivacySection />
               <PasswordSection />
               <DevicesSection />

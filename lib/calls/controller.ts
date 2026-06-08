@@ -1,8 +1,12 @@
 import { agora } from "./AgoraService";
-import { useCall, type ActiveCall } from "./store";
+import { useCall, type ActiveCall, type CallRosterEntry } from "./store";
 import { generateAgoraUid } from "./agoraUid";
 import { useRealtime } from "../realtime/store";
-import { startCall as apiStartCall } from "../api/calls";
+import {
+  startCall as apiStartCall,
+  getScreenShareToken,
+  type CallParticipant,
+} from "../api/calls";
 import { ApiError } from "../api/http";
 
 /*
@@ -13,6 +17,14 @@ import { ApiError } from "../api/http";
 
 function sock() {
   return useRealtime.getState().socket;
+}
+
+/** Map the server participant list to the roster used for tile labels + uid→name. */
+function toRoster(participants: CallParticipant[] | undefined): CallRosterEntry[] {
+  return (participants ?? []).map((p) => ({
+    name: p.name ?? p.username ?? "Participant",
+    address: p.address,
+  }));
 }
 
 function callError(e: unknown): string {
@@ -50,6 +62,7 @@ function bindHandlers(callerId?: string) {
     onTokenWillExpire: () => {
       if (callerId) void renewCallToken(callerId);
     },
+    onScreenEnded: () => onScreenShareEnded(),
   });
 }
 
@@ -79,6 +92,7 @@ export async function placeCall(opts: {
       peerAddress: opts.peerAddress,
       isGroup: res.isGroup,
       groupName: res.groupName,
+      roster: toRoster(res.participants),
       outgoing: true,
     };
     store.startOutgoing(call);
@@ -115,6 +129,7 @@ export async function acceptCall(callerId: string): Promise<void> {
       peerAddress: incoming.callerAddress,
       isGroup: res.isGroup,
       groupName: res.groupName,
+      roster: toRoster(res.participants),
       outgoing: false,
     };
     useCall.getState().startAnswered(call);
@@ -198,6 +213,84 @@ export async function toggleVideo(): Promise<void> {
 
 export async function switchCamera(): Promise<void> {
   await agora.switchCamera();
+}
+
+// Serializes screen-share start/stop so a double click (or the native
+// "Stop sharing" racing our button) can't interleave.
+let screenBusy = false;
+
+/** Heuristic: did startScreenShare fail because the user cancelled / denied? */
+function isUserCancel(e: unknown): boolean {
+  const msg = (e instanceof Error ? e.message : String(e)).toLowerCase();
+  return (
+    msg.includes("permission denied") ||
+    msg.includes("permissiondenied") ||
+    msg.includes("notallowed") ||
+    msg.includes("not allowed") ||
+    msg.includes("cancel")
+  );
+}
+
+async function doStartScreen(): Promise<void> {
+  const { call } = useCall.getState();
+  if (!call) return;
+  const tok = await getScreenShareToken(call.uuid);
+  await agora.startScreenShare({
+    channelName: tok.channelName,
+    token: tok.token,
+    uid: tok.uid,
+  });
+  sock()?.emit("screen-share-started", {
+    channelName: call.channelName,
+    callUUID: call.uuid,
+  });
+  useCall.getState().setLocalScreenOn(true);
+}
+
+async function doStopScreen(): Promise<void> {
+  const { call } = useCall.getState();
+  await agora.stopScreenShare();
+  if (call) {
+    sock()?.emit("screen-share-stopped", {
+      channelName: call.channelName,
+      callUUID: call.uuid,
+    });
+  }
+  useCall.getState().setLocalScreenOn(false);
+}
+
+/** Start/stop sharing our screen (button in CallScreen). */
+export async function toggleScreenShare(): Promise<void> {
+  if (screenBusy) return;
+  const sharing = useCall.getState().localScreenOn;
+  screenBusy = true;
+  try {
+    if (sharing) {
+      await doStopScreen();
+    } else {
+      try {
+        await doStartScreen();
+      } catch (e) {
+        // Cancelled picker / denied permission / join failure → clean state.
+        await agora.stopScreenShare().catch(() => {});
+        useCall.getState().setLocalScreenOn(false);
+        if (!isUserCancel(e)) {
+          useCall.getState().setError("Couldn't share the screen.");
+        }
+      }
+    }
+  } finally {
+    screenBusy = false;
+  }
+}
+
+/** The browser's native "Stop sharing" ended our track — only ever stops. */
+function onScreenShareEnded(): void {
+  if (screenBusy || !useCall.getState().localScreenOn) return;
+  screenBusy = true;
+  void doStopScreen().finally(() => {
+    screenBusy = false;
+  });
 }
 
 /** RTC token nearing expiry → mint a fresh one for the same call and renew. */

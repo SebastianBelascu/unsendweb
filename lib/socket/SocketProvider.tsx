@@ -96,6 +96,38 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       });
     };
 
+    // Receipt / edit on an EXISTING message → patch it in place from the socket
+    // payload (mirrors the native app's useMessageUpdates), so read/seen ticks +
+    // edits reflect INSTANTLY. The web previously only refetched on these events,
+    // which is why "seen" lagged badly while "delivered" (caught by the sender's
+    // own post-send refetch) looked fine.
+    const applyUpdate = (msg: IncomingMessage) => {
+      const threadId = msg?.threadId;
+      if (!threadId) return;
+      let mapped: MailMessage;
+      try {
+        mapped = mapMessage(msg);
+      } catch {
+        return;
+      }
+      qc.setQueryData<MailMessage[]>(["messages", threadId], (old) => {
+        if (!old) return old; // only the open/loaded thread
+        let changed = false;
+        const next = old.map((m) => {
+          const same =
+            m.id === mapped.id ||
+            (mapped.headerId && m.headerId === mapped.headerId) ||
+            (mapped.refId && m.refId === mapped.refId);
+          if (!same) return m;
+          changed = true;
+          // A server update means the message is confirmed — take server truth
+          // for receipts/edits and clear any optimistic sending/failed status.
+          return { ...m, ...mapped, status: undefined };
+        });
+        return changed ? next : old;
+      });
+    };
+
     (async () => {
       try {
         const res = await fetch("/api/auth/socket-token");
@@ -172,6 +204,9 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
           });
           if (!found) refreshLists();
         });
+        // Receipts / edits on existing messages → apply the payload instantly
+        // (the refetch in onAny stays as a backstop for anything not in cache).
+        socket.on("update", applyUpdate);
         // Other server events (receipts, edits, reactions, deletes) → batched.
         socket.onAny((event: string) => {
           if (

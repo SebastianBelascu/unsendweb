@@ -23,6 +23,13 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${openSans.variable} h-full`}>
       <body className="min-h-full bg-canvas text-ink antialiased">
+        {/* Apply the saved theme before paint to avoid a flash of the wrong one. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "try{var t=localStorage.getItem('unsend.theme');if(t==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}",
+          }}
+        />
         <Providers>{children}</Providers>
       </body>
     </html>

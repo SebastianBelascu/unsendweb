@@ -57,9 +57,7 @@ export function mapThread(t: BackendThread): ThreadListItem {
   const lm = t.lastMessage;
 
   let participants: ThreadParticipant[];
-  if (t.isGroup && t.chatName) {
-    participants = [{ name: t.chatName }];
-  } else if (t.participants?.length) {
+  if (t.participants?.length) {
     participants = t.participants.map(mapParticipant);
   } else if (lm) {
     const src = lm.outbound ? lm.to ?? [] : lm.from ? [lm.from] : [];
@@ -68,6 +66,11 @@ export function mapThread(t: BackendThread): ThreadListItem {
     participants = [];
   }
   if (participants.length === 0) participants = [{ name: "Unknown" }];
+
+  // Group name is carried separately (not as a synthetic participant) so the
+  // real members — with addresses → avatars — survive for the member stack and
+  // the call roster. Externally-created groups depend on this.
+  const groupName = t.isGroup ? t.chatName || undefined : undefined;
 
   let preview = oneLine(lm?.reactionText || lm?.text || "");
   if (!preview && lm?.attachments?.length) {
@@ -85,6 +88,7 @@ export function mapThread(t: BackendThread): ThreadListItem {
     updatedAt: t.updatedAt || lm?.createdAt || new Date(0).toISOString(),
     isEmail: Boolean(t.isEmail),
     isGroup: Boolean(t.isGroup),
+    groupName,
     // Unseen when the last message is not ours and not explicitly seen
     // (undefined seen counts as unread, matching iOS). Muted threads never
     // contribute to the unread badge.

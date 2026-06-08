@@ -27,13 +27,19 @@ export function IncomingCallModal({ callerId }: { callerId?: string }) {
           <div className="text-headline font-bold text-ink-strong">
             {incoming.callerName}
           </div>
+          {incoming.isGroup && (
+            <div className="mt-0.5 text-callout font-semibold text-ink">
+              {incoming.groupName ?? "Group call"}
+            </div>
+          )}
           <div className="mt-0.5 flex items-center justify-center gap-1.5 text-subhead text-faint">
             {incoming.isVideo ? (
               <Video className="h-4 w-4" />
             ) : (
               <Phone className="h-4 w-4" />
             )}
-            Incoming {incoming.isVideo ? "video" : "voice"} call…
+            Incoming {incoming.isGroup ? "group " : ""}
+            {incoming.isVideo ? "video" : "voice"} call…
           </div>
         </div>
 

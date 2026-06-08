@@ -14,6 +14,7 @@ import {
   Copy,
   FileText,
   Forward,
+  ImagePlus,
   Info,
   Loader2,
   MoreHorizontal,
@@ -57,6 +58,7 @@ import {
   type SendMessageInput,
 } from "@/lib/api/messages";
 import { ApiError } from "@/lib/api/http";
+import { useThreadParticipants } from "@/lib/api/threads";
 import { markThreadReadInCache } from "@/lib/realtime/threadCache";
 import { useComposeModal } from "@/lib/compose-modal";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -887,6 +889,8 @@ export function ConversationView({
   // Multi-select mode for forwarding several messages at once.
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // Drag-and-drop file/image attach.
+  const [dragging, setDragging] = useState(false);
   const [confirm, setConfirm] = useState<
     { kind: "forMe" | "forAll"; message: MailMessage } | null
   >(null);
@@ -1022,9 +1026,14 @@ export function ConversationView({
 
   const currentUserAddress = username ? `${username}${MAIL_DOMAIN}` : undefined;
 
-  // Group members derived from the conversation (union of from/to/cc + self).
-  // No GET-participants endpoint exists, so this is the authoritative set we
-  // can offer for participant management.
+  // Authoritative group roster from the chat detail (GET /threads/:id). This is
+  // what makes externally-created groups (synced from other platforms, with no
+  // addressed members in the local message history yet) show their members +
+  // avatars — message-derived participants below are only a fallback/supplement.
+  const { data: rosterParticipants } = useThreadParticipants(id, isGroup);
+
+  // Group members: the fetched roster, unioned with anyone seen in the
+  // conversation (from/to/cc) + self. Addresses drive avatar/photo resolution.
   const groupMembers = useMemo<ThreadParticipant[]>(() => {
     if (!isGroup) return [];
     const map = new Map<string, ThreadParticipant>();
@@ -1033,6 +1042,7 @@ export function ConversationView({
       const k = p.address.toLowerCase();
       if (!map.has(k)) map.set(k, { name: p.name, address: p.address });
     };
+    rosterParticipants?.forEach(add);
     for (const m of messages) {
       if (m.isInfoMessage) continue;
       add(m.from);
@@ -1047,7 +1057,7 @@ export function ConversationView({
       });
     }
     return [...map.values()];
-  }, [messages, isGroup, currentUserAddress, me, username]);
+  }, [rosterParticipants, messages, isGroup, currentUserAddress, me, username]);
 
   function doSend(localId: string, payload: SendMessageInput) {
     pendingPayloads.current.set(localId, payload);
@@ -1247,7 +1257,32 @@ export function ConversationView({
   const is1to1 = !isEmail && !isGroup && Boolean(recipientAddress);
 
   return (
-    <div className="flex h-full flex-col">
+    <div
+      className="relative flex h-full flex-col"
+      onDragOver={(e) => {
+        if (selectMode || !e.dataTransfer.types.includes("Files")) return;
+        e.preventDefault();
+        if (!dragging) setDragging(true);
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragging(false);
+      }}
+      onDrop={(e) => {
+        if (selectMode) return;
+        e.preventDefault();
+        setDragging(false);
+        const files = Array.from(e.dataTransfer.files);
+        if (files.length) att.addFiles(files);
+      }}
+    >
+      {dragging && (
+        <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-canvas/85 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-2 rounded-2xl border-2 border-dashed border-accent px-10 py-8 text-accent">
+            <ImagePlus className="h-9 w-9" />
+            <span className="text-callout font-semibold">Drop to attach</span>
+          </div>
+        </div>
+      )}
       <header className="flex items-center gap-3 border-b border-line px-6 py-3">
         <Link
           href={backHref}
@@ -1326,11 +1361,12 @@ export function ConversationView({
             </div>
           </>
         )}
-        {is1to1 && (
+        {(is1to1 || (isGroup && !isEmail && topicId)) && (
           <CallButtons
             topicId={topicId}
             recipientName={title}
-            recipientAddress={recipientAddress}
+            recipientAddress={is1to1 ? recipientAddress : undefined}
+            className={is1to1 ? "ml-auto" : "ml-1"}
           />
         )}
         {isGroup && (

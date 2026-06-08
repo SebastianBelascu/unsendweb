@@ -6,9 +6,10 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { apiGet, apiSend } from "./http";
-import { mapThread } from "./mappers";
-import type { ThreadsResponse } from "./backend-types";
-import type { MailFilter, ThreadListItem } from "../types";
+import { mapParticipant, mapThread } from "./mappers";
+import { recentlyBumped } from "../realtime/optimistic-bumps";
+import type { BackendThread, ThreadsResponse } from "./backend-types";
+import type { MailFilter, ThreadListItem, ThreadParticipant } from "../types";
 
 // MailFilter -> backend FetchThreadsFilterEnum value
 const FILTER_MAP: Record<MailFilter, string> = {
@@ -26,6 +27,26 @@ export interface ThreadsPage {
   totalPages: number;
 }
 
+/*
+  The backend commits a thread's `lastMessage`/`updatedAt` AFTER emitting the
+  socket event, so a refetch landing in that window returns a STALE preview/order
+  and would clobber the instant optimistic bump (see realtime/threadCache.ts).
+  On each refetch we therefore keep the cached copy of any thread bumped within
+  the last few seconds, then defer to the backend once it has caught up
+  (recentlyBumped expires) — self-healing. This runs only inside the queryFn (on
+  fetch/refetch), NOT on the deliberate setQueryData updates like read-clear or
+  flag toggles, so those still apply. Recency is tracked on the client clock only
+  (see optimistic-bumps), avoiding any client/server timestamp comparison.
+*/
+function keepRecentlyBumped(cached: ThreadListItem[] | undefined) {
+  if (!cached?.length) return (t: ThreadListItem) => t;
+  const byId = new Map(cached.map((t) => [t.id, t]));
+  return (t: ThreadListItem): ThreadListItem => {
+    const old = byId.get(t.id);
+    return old && (recentlyBumped(t.id) || recentlyBumped(t.topicId)) ? old : t;
+  };
+}
+
 export async function fetchThreadsPage(
   filter: MailFilter,
   page: number,
@@ -41,9 +62,18 @@ export async function fetchThreadsPage(
 }
 
 export function useThreadsInfinite(filter: MailFilter) {
+  const qc = useQueryClient();
   return useInfiniteQuery({
     queryKey: ["threads", filter],
-    queryFn: ({ pageParam }) => fetchThreadsPage(filter, pageParam),
+    queryFn: async ({ pageParam }) => {
+      const page = await fetchThreadsPage(filter, pageParam);
+      const cached = qc.getQueryData<InfiniteData<ThreadsPage>>([
+        "threads",
+        filter,
+      ]);
+      const keep = keepRecentlyBumped(cached?.pages.flatMap((p) => p.items));
+      return { ...page, items: page.items.map(keep) };
+    },
     initialPageParam: 1,
     getNextPageParam: (last) =>
       last.page < last.totalPages ? last.page + 1 : undefined,
@@ -64,24 +94,58 @@ export async function fetchPinnedThreads(): Promise<ThreadListItem[]> {
 }
 
 export function usePinnedThreads() {
+  const qc = useQueryClient();
   return useQuery({
     queryKey: ["threads", "pinned"],
-    queryFn: fetchPinnedThreads,
+    queryFn: async () => {
+      const items = await fetchPinnedThreads();
+      const cached = qc.getQueryData<ThreadListItem[]>(["threads", "pinned"]);
+      return items.map(keepRecentlyBumped(cached));
+    },
     refetchInterval: 20_000,
   });
 }
 
 /** Chat inbox: separate cache key; filters the inbox to non-email threads. */
 export function useChatThreads() {
+  const qc = useQueryClient();
   return useQuery({
     queryKey: ["chatThreads"],
     queryFn: async () => {
       const res = await apiGet<ThreadsResponse>(
         `/threads/filter/inbox/page/1/size/50`,
       );
-      return (res?.data ?? []).map(mapThread).filter((t) => !t.isEmail);
+      const items = (res?.data ?? [])
+        .map(mapThread)
+        .filter((t) => !t.isEmail);
+      const cached = qc.getQueryData<ThreadListItem[]>(["chatThreads"]);
+      return items.map(keepRecentlyBumped(cached));
     },
     refetchInterval: 20_000,
+  });
+}
+
+export async function fetchThreadParticipants(
+  threadId: string,
+): Promise<ThreadParticipant[]> {
+  const t = await apiGet<BackendThread>(
+    `/threads/${encodeURIComponent(threadId)}`,
+  );
+  return (t?.participants ?? []).map(mapParticipant);
+}
+
+/**
+ * Full group roster (name + address) from the chat detail (GET /threads/:id).
+ * The thread list collapses group participants to just the chat name, and a
+ * freshly-synced external group has no addressed members in its local message
+ * history — so the member list and their avatars are sourced from here.
+ */
+export function useThreadParticipants(threadId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["thread-participants", threadId],
+    queryFn: () => fetchThreadParticipants(threadId),
+    enabled: enabled && Boolean(threadId),
+    staleTime: 60_000,
   });
 }
 

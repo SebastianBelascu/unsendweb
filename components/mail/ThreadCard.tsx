@@ -30,9 +30,13 @@ export function ThreadCard({
   onToggleSelect?: () => void;
 }) {
   const others = otherParticipants(thread.participants, currentUsername);
-  const name = threadDisplayName(thread.participants, currentUsername);
   const unread = thread.unread;
-  const isGroup = others.length >= 2;
+  // Trust the backend group flag; infer from count only when it's absent.
+  const isGroup = thread.isGroup ?? others.length >= 2;
+  const name =
+    isGroup && thread.groupName
+      ? thread.groupName
+      : threadDisplayName(thread.participants, currentUsername);
 
   const dmUsername =
     !thread.isEmail && !isGroup && others[0]?.address
@@ -55,7 +59,7 @@ export function ThreadCard({
     params.set("n", name);
     params.set("t", thread.topicId);
     const addr = others[0]?.address;
-    if (addr) params.set("a", addr);
+    if (addr && !isGroup) params.set("a", addr);
     if (isGroup) params.set("g", "1");
   }
   const qs = params.toString() ? `?${params.toString()}` : "";
@@ -162,8 +166,11 @@ export function ThreadCard({
     </>
   );
 
+  // Fixed height so every row is identical, whether it's a 1-line chat preview
+  // or a 2-line email (subject + body). Content is single-line (truncated) so it
+  // always fits; items-center keeps it vertically centered.
   const rowClass =
-    "flex items-center gap-3 border-b border-line px-4 py-3 pr-11 text-left transition-colors";
+    "flex h-[84px] items-center gap-3 border-b border-line px-4 pr-11 text-left transition-colors";
 
   return (
     <div className="group relative">
