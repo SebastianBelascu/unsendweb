@@ -1,19 +1,24 @@
 "use client";
 
 import { useState, type CSSProperties } from "react";
+import { Play } from "lucide-react";
 import type { MailAttachment } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { BlurImage } from "./BlurImage";
 import { MediaLightbox } from "./MediaLightbox";
 
 /*
-  WhatsApp-style image album for a single chat/email message. 1 image keeps its
-  orientation; 2/3/4+ pack into a tidy grid with a "+N" overflow tile. Tapping
-  any tile opens the MediaLightbox at that image. Non-image attachments
-  (video/voice/file) are rendered separately by the caller.
+  WhatsApp-style media album for a single chat/email message. Images and videos
+  share the grid: 1 keeps its orientation; 2/3/4+ pack into a tidy layout with a
+  "+N" overflow tile. Videos render their poster with a ▶ badge. Tapping any tile
+  opens the MediaLightbox at that item. Voice/file attachments are rendered
+  separately by the caller.
 */
 
 const MAX_W = "max-w-[320px]";
+
+const isVideo = (a: MailAttachment) =>
+  (a.type || "").toLowerCase().startsWith("video");
 
 function aspectFor(o?: string): string {
   if (o === "portrait") return "3 / 4";
@@ -34,15 +39,23 @@ function Tile({
   style?: CSSProperties;
   overlay?: string;
 }) {
+  const video = isVideo(a);
   return (
     <div className={cn("relative cursor-pointer", className)} style={style}>
       <BlurImage
-        url={a.url}
-        blurhash={a.placeholder}
+        url={video ? a.posterUrl : a.url}
+        blurhash={video ? undefined : a.placeholder}
         alt={a.filename}
         className="h-full w-full rounded-lg"
         onClick={onOpen}
       />
+      {video && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/55">
+            <Play className="h-6 w-6 translate-x-0.5 text-white" fill="currentColor" />
+          </span>
+        </div>
+      )}
       {overlay && (
         <div
           onClick={onOpen}
@@ -55,19 +68,19 @@ function Tile({
   );
 }
 
-export function AttachmentGrid({ images }: { images: MailAttachment[] }) {
+export function AttachmentGrid({ media }: { media: MailAttachment[] }) {
   const [open, setOpen] = useState<number | null>(null);
-  const count = images.length;
+  const count = media.length;
   if (count === 0) return null;
 
   const lightbox =
     open != null ? (
-      <MediaLightbox images={images} index={open} onClose={() => setOpen(null)} />
+      <MediaLightbox media={media} index={open} onClose={() => setOpen(null)} />
     ) : null;
 
-  // Single image — keep its natural-ish orientation.
+  // Single item — keep its natural-ish orientation.
   if (count === 1) {
-    const a = images[0];
+    const a = media[0];
     return (
       <>
         <div className={cn("w-full", MAX_W)}>
@@ -82,12 +95,12 @@ export function AttachmentGrid({ images }: { images: MailAttachment[] }) {
     );
   }
 
-  // Two images — side by side.
+  // Two — side by side.
   if (count === 2) {
     return (
       <>
         <div className={cn("grid grid-cols-2 gap-1", MAX_W)}>
-          {images.map((a, i) => (
+          {media.map((a, i) => (
             <Tile
               key={a.id}
               a={a}
@@ -107,12 +120,12 @@ export function AttachmentGrid({ images }: { images: MailAttachment[] }) {
       <>
         <div className={cn("grid grid-cols-2 gap-1", MAX_W)}>
           <Tile
-            a={images[0]}
+            a={media[0]}
             onOpen={() => setOpen(0)}
             className="col-span-2"
             style={{ aspectRatio: "2 / 1" }}
           />
-          {images.slice(1, 3).map((a, i) => (
+          {media.slice(1, 3).map((a, i) => (
             <Tile
               key={a.id}
               a={a}
@@ -127,7 +140,7 @@ export function AttachmentGrid({ images }: { images: MailAttachment[] }) {
   }
 
   // Four or more — 2×2, with a "+N" overlay on the last visible tile.
-  const visible = images.slice(0, 4);
+  const visible = media.slice(0, 4);
   const extra = count - 4;
   return (
     <>

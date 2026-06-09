@@ -2,34 +2,41 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronLeft, ChevronRight, Download, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, Play, X } from "lucide-react";
 import type { MailAttachment } from "@/lib/types";
 import { blurhashToDataURL } from "@/lib/media/blurhash";
 import { cn } from "@/lib/utils";
 
 /*
-  Fullscreen image viewer (the lightbox you get when tapping a photo in chat).
-  Swipe between the message's images, zoom (click to toggle), download, and
-  navigate with the keyboard (←/→/Esc). Rendered in a portal on <body> so it
-  escapes the message-list stacking/overflow context.
+  Fullscreen media viewer (the lightbox you get when tapping a photo/video in
+  chat). Swipe between the message's media, play videos inline, download, and
+  navigate with the keyboard (←/→/Esc). Clicking anywhere that ISN'T the media
+  closes it. Rendered in a portal on <body> so it escapes the message-list
+  stacking/overflow context.
 */
+
+const isVideo = (a?: MailAttachment) =>
+  (a?.type || "").toLowerCase().startsWith("video");
+
 export function MediaLightbox({
-  images,
+  media,
   index,
   onClose,
 }: {
-  images: MailAttachment[];
+  media: MailAttachment[];
   index: number;
   onClose: () => void;
 }) {
   const [i, setI] = useState(index);
   const touchX = useRef<number | null>(null);
 
-  const count = images.length;
-  const cur = images[i];
-  const blur = cur?.placeholder
-    ? blurhashToDataURL(cur.placeholder)
-    : undefined;
+  const count = media.length;
+  const cur = media[i];
+  const curVideo = isVideo(cur);
+  const blur =
+    !curVideo && cur?.placeholder
+      ? blurhashToDataURL(cur.placeholder)
+      : undefined;
 
   const go = useCallback(
     (dir: number) => {
@@ -96,7 +103,7 @@ export function MediaLightbox({
         </div>
       </div>
 
-      {/* Stage — clicking anywhere that ISN'T the image closes the viewer. */}
+      {/* Stage — clicking anywhere that ISN'T the media closes the viewer. */}
       <div
         className="relative flex flex-1 items-center justify-center overflow-hidden px-2"
         onClick={onClose}
@@ -122,15 +129,28 @@ export function MediaLightbox({
             className="absolute h-[60%] max-h-[80vh] w-auto max-w-[92vw] object-contain opacity-40 blur-xl"
           />
         )}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          key={cur.id}
-          src={cur.url}
-          alt={cur.filename}
-          onClick={(e) => e.stopPropagation()}
-          className="relative max-h-[82vh] max-w-[92vw] select-none object-contain"
-          draggable={false}
-        />
+        {curVideo ? (
+          <video
+            key={cur.id}
+            src={cur.url}
+            poster={cur.posterUrl}
+            controls
+            autoPlay
+            playsInline
+            onClick={(e) => e.stopPropagation()}
+            className="relative max-h-[82vh] max-w-[92vw] object-contain"
+          />
+        ) : (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            key={cur.id}
+            src={cur.url}
+            alt={cur.filename}
+            onClick={(e) => e.stopPropagation()}
+            className="relative max-h-[82vh] max-w-[92vw] select-none object-contain"
+            draggable={false}
+          />
+        )}
 
         {count > 1 && (
           <>
@@ -166,26 +186,34 @@ export function MediaLightbox({
           className="flex justify-center gap-1.5 overflow-x-auto px-4 py-3"
           onClick={(e) => e.stopPropagation()}
         >
-          {images.map((a, idx) => (
-            <button
-              key={a.id}
-              type="button"
-              onClick={() => setI(idx)}
-              className={cn(
-                "h-12 w-12 shrink-0 overflow-hidden rounded-md border-2 transition-opacity",
-                idx === i
-                  ? "border-white opacity-100"
-                  : "border-transparent opacity-50 hover:opacity-80",
-              )}
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={a.url}
-                alt={a.filename}
-                className="h-full w-full object-cover"
-              />
-            </button>
-          ))}
+          {media.map((a, idx) => {
+            const vid = isVideo(a);
+            return (
+              <button
+                key={a.id}
+                type="button"
+                onClick={() => setI(idx)}
+                className={cn(
+                  "relative h-12 w-12 shrink-0 overflow-hidden rounded-md border-2 bg-black/40 transition-opacity",
+                  idx === i
+                    ? "border-white opacity-100"
+                    : "border-transparent opacity-50 hover:opacity-80",
+                )}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={vid ? a.posterUrl : a.url}
+                  alt={a.filename}
+                  className="h-full w-full object-cover"
+                />
+                {vid && (
+                  <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                    <Play className="h-4 w-4 text-white" fill="currentColor" />
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>,

@@ -23,6 +23,13 @@ export interface BackendAttachment {
   orientation?: string | null;
 }
 
+export interface BackendMessageInfo {
+  userId?: string;
+  name?: string;
+  username?: string;
+  createdAt?: string;
+}
+
 export interface BackendReaction {
   id: string;
   reaction: string;
@@ -54,6 +61,9 @@ export interface BackendMessage {
   isDeleted?: boolean;
   replyTo?: string | null;
   reactions?: BackendReaction[];
+  /** Per-user receipt rosters (drive "who saw it" in Message info). */
+  readInfo?: BackendMessageInfo[];
+  deliveryInfo?: BackendMessageInfo[];
   attachments?: BackendAttachment[];
   createdAt?: string;
   updatedAt?: string;

@@ -123,6 +123,16 @@ export function mapMessage(m: BackendMessage): MailMessage {
       byUserId: r.byUser?.userId,
       byName: r.byUser?.name,
     })),
+    readInfo: (m.readInfo ?? []).map((r) => ({
+      name: r.name || r.username || "Someone",
+      username: r.username,
+      at: r.createdAt,
+    })),
+    deliveryInfo: (m.deliveryInfo ?? []).map((r) => ({
+      name: r.name || r.username || "Someone",
+      username: r.username,
+      at: r.createdAt,
+    })),
     date: m.createdAt || new Date(0).toISOString(),
     html: m.hasHtml && m.html ? m.html : undefined,
     hasHtml: Boolean(m.hasHtml || m.html),
@@ -137,7 +147,9 @@ export function mapMessage(m: BackendMessage): MailMessage {
     attachments: (m.attachments ?? []).map((a, i) => {
       const title = a.title || "attachment";
       const voice = isVoice(a);
-      const isImage = (a.type || "").toLowerCase().startsWith("image");
+      const ct = (a.type || "").toLowerCase();
+      const isImage = ct.startsWith("image");
+      const isVideo = ct.startsWith("video");
       return {
         id: a.id || title || `att-${i}`,
         filename: title,
@@ -146,6 +158,10 @@ export function mapMessage(m: BackendMessage): MailMessage {
         sizeLabel: humanSize(a.size),
         // `placeholder` is dual-purpose: blurhash for images, duration for voice.
         placeholder: isImage ? a.placeholder ?? undefined : undefined,
+        // For video the poster lives in `thumbnail` (or `placeholder`, native).
+        posterUrl: isVideo
+          ? a.thumbnail ?? a.placeholder ?? undefined
+          : undefined,
         durationSec:
           voice && a.placeholder ? parseInt(a.placeholder, 10) : undefined,
         orientation: a.orientation ?? undefined,

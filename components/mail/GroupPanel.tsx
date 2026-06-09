@@ -23,6 +23,7 @@ export function GroupPanel({
   name,
   members,
   currentUserAddress,
+  onRenamed,
   onClose,
 }: {
   topicId: string;
@@ -30,6 +31,8 @@ export function GroupPanel({
   name: string;
   members: ThreadParticipant[];
   currentUserAddress?: string;
+  /** Called with the new name on a successful rename (header reflects instantly). */
+  onRenamed?: (name: string) => void;
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -45,7 +48,7 @@ export function GroupPanel({
   function commitRename() {
     const next = newName.trim();
     if (!next || next === name) return;
-    rename.mutate(next);
+    rename.mutate(next, { onSuccess: () => onRenamed?.(next) });
   }
 
   function commitAdd() {

@@ -62,6 +62,8 @@ export interface MailAttachment {
   durationSec?: number;
   /** Image blurhash (from the backend `placeholder`) for progressive loading. */
   placeholder?: string;
+  /** Video poster/thumbnail URL (shown in the album grid + lightbox). */
+  posterUrl?: string;
   /** "portrait" | "landscape" | "box" — drives the album grid aspect ratio. */
   orientation?: string;
 }
@@ -71,6 +73,14 @@ export interface MailReaction {
   emoji: string;
   byUserId?: string;
   byName?: string;
+}
+
+/** One per-user receipt entry (who delivered/read a message, and when). */
+export interface MessageReceipt {
+  name: string;
+  username?: string;
+  /** ISO timestamp of the receipt. */
+  at?: string;
 }
 
 /** A single message inside a thread/conversation. */
@@ -112,6 +122,9 @@ export interface MailMessage {
   isDeleted?: boolean;
   /** Client-only delivery state for optimistic outbound messages. */
   status?: "sending" | "failed";
+  /** Per-user receipt rosters — "Read by" / "Delivered to" in Message info. */
+  readInfo?: MessageReceipt[];
+  deliveryInfo?: MessageReceipt[];
   attachments?: MailAttachment[];
 }
 

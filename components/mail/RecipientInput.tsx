@@ -4,7 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { UserAvatar } from "./UserAvatar";
-import { searchUsers } from "@/lib/api/users";
+import { searchUsers, type UserResult } from "@/lib/api/users";
+import { useContacts } from "@/lib/api/contacts";
+import { localPart, MAIL_DOMAIN } from "@/lib/identity";
 import { cn } from "@/lib/utils";
 
 export interface Recipient {
@@ -36,15 +38,47 @@ export function RecipientInput({
     return () => clearTimeout(t);
   }, [text]);
 
+  // Your address book — surfaced as instant suggestions (like the native app),
+  // so typing a contact's name/username/phone shows them with no round-trip.
+  const { data: contacts = [] } = useContacts();
+  // Broader platform search as a fallback for people not in your contacts.
   const { data: results = [] } = useQuery({
     queryKey: ["userSearch", debounced],
     queryFn: () => searchUsers(debounced),
     enabled: debounced.length >= 2,
   });
 
-  const suggestions = results.filter(
-    (r) => !value.some((v) => v.address.toLowerCase() === r.address.toLowerCase()),
-  );
+  const q = debounced.toLowerCase();
+  const localMatches: UserResult[] =
+    q.length >= 1
+      ? contacts
+          .filter(
+            (c) =>
+              // Chat compose suggests Unsend users only; email mode allows all.
+              (allowFreeText ||
+                c.address.toLowerCase().includes(MAIL_DOMAIN)) &&
+              ((c.name || "").toLowerCase().includes(q) ||
+                c.address.toLowerCase().includes(q) ||
+                (c.phone || "").includes(q)),
+          )
+          .map((c) => ({
+            name: c.name || localPart(c.address),
+            username: localPart(c.address),
+            address: c.address,
+          }))
+      : [];
+
+  // Contacts first, then platform-search results; dedupe by address; drop any
+  // already selected.
+  const suggestions: UserResult[] = [];
+  const seen = new Set(value.map((v) => v.address.toLowerCase()));
+  for (const r of [...localMatches, ...results]) {
+    const k = r.address.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    suggestions.push(r);
+    if (suggestions.length >= 8) break;
+  }
 
   function add(r: Recipient) {
     if (!value.some((v) => v.address.toLowerCase() === r.address.toLowerCase())) {
@@ -129,7 +163,7 @@ export function RecipientInput({
                 <UserAvatar
                   name={r.name}
                   address={r.address}
-                  isEmail={false}
+                  isEmail={allowFreeText}
                   size={28}
                   showBadge={false}
                 />
@@ -138,7 +172,8 @@ export function RecipientInput({
                     {r.name}
                   </span>
                   <span className="block truncate text-caption text-faint">
-                    @{r.username}
+                    {/* Email compose → show the full address; chat → @username. */}
+                    {allowFreeText ? r.address : `@${r.username}`}
                   </span>
                 </span>
               </button>

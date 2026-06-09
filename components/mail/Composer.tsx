@@ -15,6 +15,7 @@ import {
 import { cn } from "@/lib/utils";
 import { clearDraft, loadDraft, saveDraft } from "@/lib/drafts";
 import { useForwardMessages, useSendMessage } from "@/lib/api/messages";
+import { updateChatName } from "@/lib/api/threads";
 
 export interface ComposerInitial {
   mode: "new" | "reply" | "replyAll" | "forward";
@@ -99,6 +100,10 @@ export function Composer({
   const [showCcBcc, setShowCcBcc] = useState(ccR.length > 0);
   const [subject, setSubject] = useState(initial.subject);
   const [body, setBody] = useState(initial.body);
+  const [groupName, setGroupName] = useState("");
+
+  // A chat with 2+ recipients composes a group; offer to name it.
+  const isGroupChat = !isEmail && toR.length > 1;
 
   const draftKey = `compose:${initial.mode}:${
     initial.threadId ?? initial.topicId ?? "new"
@@ -168,12 +173,14 @@ export function Composer({
       att.clear();
       return;
     }
+    const groupNameTrimmed = isGroupChat ? groupName.trim() : "";
     send.mutate(
       {
         toList: toR,
         ccList: isEmail && ccR.length ? ccR : undefined,
         bccList: isEmail && bccR.length ? bccR : undefined,
-        subject: isEmail ? subject : undefined,
+        // For a group chat the subject carries the group name (→ chatName).
+        subject: isEmail ? subject : groupNameTrimmed || undefined,
         text: body,
         isEmail,
         isChat: !isEmail,
@@ -182,7 +189,18 @@ export function Composer({
         topicId: initial.topicId,
         attachments: dtos.length ? dtos : undefined,
       },
-      { onSuccess: handleSent },
+      {
+        onSuccess: (data) => {
+          // Guarantee the group name sticks: chat creation may not map the
+          // message subject onto the chat's name, so set it explicitly on the
+          // freshly-created topic.
+          const tid = (data as { topicId?: string } | undefined)?.topicId;
+          if (groupNameTrimmed && tid) {
+            updateChatName(tid, groupNameTrimmed).catch(() => {});
+          }
+          handleSent(data);
+        },
+      },
     );
     att.clear();
   }
@@ -278,6 +296,18 @@ export function Composer({
           allowFreeText={isEmail}
           autoFocus
         />
+
+        {isGroupChat && (
+          <label className="flex items-center gap-3 border-b border-line px-6 py-3">
+            <span className="w-12 shrink-0 text-footnote text-faint">Group</span>
+            <input
+              value={groupName}
+              onChange={(e) => setGroupName(e.target.value)}
+              placeholder="Group name (optional)"
+              className="w-full bg-transparent text-body text-ink-strong outline-none placeholder:text-faint"
+            />
+          </label>
+        )}
 
         {isEmail && !showCcBcc && (
           <button

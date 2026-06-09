@@ -73,6 +73,7 @@ export async function uploadAttachment(
     size: number;
     placeholder?: string;
     orientation?: string;
+    thumbnail?: string;
     onProgress?: (pct: number) => void;
   },
 ): Promise<AttachmentDto> {
@@ -91,5 +92,6 @@ export async function uploadAttachment(
     size: meta.size,
     placeholder: meta.placeholder,
     orientation: meta.orientation,
+    thumbnail: meta.thumbnail,
   };
 }

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { FileText, Loader2, Mic, Paperclip, Send, Trash2, X } from "lucide-react";
 import { uploadAttachment, type AttachmentDto } from "@/lib/api/attachments";
 import { isProcessableImage, processImageFile } from "@/lib/media/image";
+import { generateVideoPoster } from "@/lib/media/video";
 import type { MailAttachment } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -60,6 +61,7 @@ export function useComposerAttachments() {
       let placeholder =
         entry.durationSec != null ? String(entry.durationSec) : undefined;
       let orientation: string | undefined;
+      let thumbnail: string | undefined;
       try {
         if (isProcessableImage(file.type)) {
           const p = await processImageFile(file);
@@ -69,6 +71,26 @@ export function useComposerAttachments() {
           placeholder = p.blurhash;
           orientation = p.orientation;
           patch(entry.localId, { type, placeholder, orientation });
+        } else if (file.type.startsWith("video")) {
+          // Grab + upload a poster frame so the video shows like a photo
+          // (poster + ▶) everywhere. Native stores the thumbnail URL in
+          // `placeholder`, so we set both placeholder and thumbnail to it.
+          try {
+            const poster = await generateVideoPoster(file);
+            const base = (file.name || "video").replace(/\.[^.]+$/, "");
+            const posterDto = await uploadAttachment(poster.blob, {
+              id: `${entry.id}-poster`,
+              filename: `${base}-poster.jpg`,
+              type: "image/jpeg",
+              size: poster.blob.size,
+            });
+            placeholder = posterDto.url;
+            thumbnail = posterDto.url;
+            orientation = poster.orientation;
+            patch(entry.localId, { placeholder, orientation });
+          } catch {
+            /* undecodable codec → upload the video with no poster */
+          }
         }
         const dto = await uploadAttachment(blob, {
           id: entry.id,
@@ -77,6 +99,7 @@ export function useComposerAttachments() {
           size: blob.size,
           placeholder,
           orientation,
+          thumbnail,
           onProgress: (pct) => patch(entry.localId, { progress: pct }),
         });
         patch(entry.localId, { status: "done", progress: 100, dto });
@@ -187,6 +210,7 @@ export type ComposerAttachments = ReturnType<typeof useComposerAttachments>;
 export function dtosToMailAttachments(dtos: AttachmentDto[]): MailAttachment[] {
   return dtos.map((d, i) => {
     const isImage = d.type.startsWith("image");
+    const isVideo = d.type.startsWith("video");
     return {
       id: d.id || d.url || `att-${i}`,
       filename: d.title,
@@ -195,6 +219,8 @@ export function dtosToMailAttachments(dtos: AttachmentDto[]): MailAttachment[] {
       // For images, `placeholder` is the blurhash (progressive load). For voice
       // it's the duration — read out into durationSec instead.
       placeholder: isImage ? d.placeholder : undefined,
+      // For video, the poster/thumbnail URL (native stores it in placeholder).
+      posterUrl: isVideo ? d.thumbnail || d.placeholder : undefined,
       orientation: d.orientation,
       durationSec:
         d.type.startsWith("audio") && d.placeholder

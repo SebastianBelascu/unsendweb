@@ -1,6 +1,8 @@
 import type { InfiniteData, QueryClient } from "@tanstack/react-query";
 import type { ThreadsPage } from "@/lib/api/threads";
 import type { ThreadListItem } from "@/lib/types";
+import { mapThread } from "@/lib/api/mappers";
+import type { BackendThread } from "@/lib/api/backend-types";
 import { markBumped } from "./optimistic-bumps";
 
 /*
@@ -94,6 +96,59 @@ export function bumpThread(
   qc.setQueryData<unknown>(["chatThreads"], flatBump);
 
   return found;
+}
+
+/**
+ * Reconcile a THREAD socket event (`data.lastMessage` present, no `headerId`)
+ * into the conversation-list caches — the instant-list counterpart to the
+ * message reconciliation in SocketProvider. Mirrors the native `useThreadUpdates`
+ * hook: an existing thread is bumped (preview/unread/order) in place; a brand-new
+ * one is inserted at the top of the inbox so it appears WITHOUT waiting for a
+ * refetch (previously such threads lagged behind the 1.2s/20s refetch).
+ */
+export function applyThreadEvent(qc: QueryClient, data: BackendThread): void {
+  try {
+    const lm = data.lastMessage;
+    const preview =
+      lm?.reactionText ||
+      lm?.text ||
+      (lm?.attachments?.length ? "📎 Attachment" : "");
+    const found = bumpThread(qc, {
+      threadId: data.threadId || data._id,
+      topicId: data.topicId,
+      preview,
+      outbound: Boolean(lm?.outbound),
+    });
+    if (found) return;
+
+    // Brand-new conversation → insert the full mapped row at the top of inbox.
+    const item = mapThread(data);
+    if ((!item.id && !item.topicId) || item.isDeleted || item.isSpam) return;
+    markBumped(item.id, item.topicId);
+
+    const matches = (t: ThreadListItem | undefined) =>
+      !!t &&
+      ((!!item.id && t.id === item.id) ||
+        (!!item.topicId && t.topicId === item.topicId));
+
+    qc.setQueryData<InfiniteData<ThreadsPage>>(["threads", "inbox"], (cache) => {
+      if (!cache) return cache;
+      if (cache.pages.some((pg) => (pg.items ?? []).some(matches))) return cache;
+      const [first, ...rest] = cache.pages;
+      const f = first ?? { items: [], page: 1, totalPages: 1 };
+      return {
+        ...cache,
+        pages: [{ ...f, items: [item, ...(f.items ?? [])] }, ...rest],
+      };
+    });
+    if (!item.isEmail) {
+      qc.setQueryData<ThreadListItem[]>(["chatThreads"], (list) =>
+        Array.isArray(list) && !list.some(matches) ? [item, ...list] : list,
+      );
+    }
+  } catch {
+    /* a cosmetic list write must never break realtime */
+  }
 }
 
 /** Optimistically clear a thread's unread flag everywhere (instant un-bold). */

@@ -6,31 +6,98 @@ import { UserAvatar } from "@/components/mail/UserAvatar";
 import { SearchField } from "@/components/ui/SearchField";
 import { useContacts, type Contact } from "@/lib/api/contacts";
 import { useComposeModal } from "@/lib/compose-modal";
-import { localPart } from "@/lib/identity";
+import { localPart, MAIL_DOMAIN } from "@/lib/identity";
+import { useLastSeen, useOnline, usePresenceFor } from "@/lib/realtime/hooks";
 
 /*
-  Contacts list (middle pane, "Contacts" rail section). Lists the user's address
-  book with search; tapping a contact opens the chat composer pre-addressed to
-  them (the backend reuses an existing DM if there is one).
+  Contacts list (middle pane, "Contacts" rail section) — mirrors the native
+  FriendsView chat-contacts: only Unsend users, each row with avatar + name +
+  @username, an online dot / last-seen subtitle, and tap-to-chat. The composer
+  reuses an existing DM if there is one.
 */
+
+function lastSeenLabel(iso?: string): string {
+  if (!iso) return "";
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "last seen just now";
+  if (m < 60) return `last seen ${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `last seen ${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `last seen ${d}d ago`;
+}
+
+function ContactRow({ c, onOpen }: { c: Contact; onOpen: () => void }) {
+  const username = localPart(c.address);
+  const online = useOnline(username);
+  const lastSeen = useLastSeen(username);
+  const name = c.name || username;
+  const subtitle = online
+    ? "online"
+    : lastSeen
+      ? lastSeenLabel(lastSeen)
+      : `@${username}`;
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-surface-2"
+    >
+      <UserAvatar
+        name={name}
+        address={c.address}
+        size={48}
+        isEmail={false}
+        online={online}
+        showBadge={false}
+      />
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-body font-semibold text-ink-strong">
+          {name}
+        </div>
+        <div
+          className={online ? "truncate text-footnote text-email" : "truncate text-footnote text-faint"}
+        >
+          {subtitle}
+        </div>
+      </div>
+    </button>
+  );
+}
+
 export function ContactsPane() {
   const { data, isLoading, isError, refetch } = useContacts();
   const [query, setQuery] = useState("");
   const openCompose = useComposeModal((s) => s.open);
 
+  // Chat contacts only (Unsend users) — external emails can't be messaged here.
+  const all = useMemo(
+    () =>
+      [...(data ?? [])].filter((c) =>
+        c.address.toLowerCase().includes(MAIL_DOMAIN),
+      ),
+    [data],
+  );
+
+  // Subscribe presence for the whole list → online dots + last-seen.
+  const usernames = useMemo(() => all.map((c) => localPart(c.address)), [all]);
+  usePresenceFor(usernames);
+
   const contacts = useMemo(() => {
-    const list = [...(data ?? [])].sort((a, b) =>
+    const q = query.trim().toLowerCase();
+    const filtered = q
+      ? all.filter(
+          (c) =>
+            (c.name || "").toLowerCase().includes(q) ||
+            c.address.toLowerCase().includes(q) ||
+            (c.phone || "").includes(q),
+        )
+      : all;
+    return [...filtered].sort((a, b) =>
       (a.name || a.address).localeCompare(b.name || b.address),
     );
-    const q = query.trim().toLowerCase();
-    if (!q) return list;
-    return list.filter(
-      (c) =>
-        (c.name || "").toLowerCase().includes(q) ||
-        c.address.toLowerCase().includes(q) ||
-        (c.phone || "").includes(q),
-    );
-  }, [data, query]);
+  }, [all, query]);
 
   function startChat(c: Contact) {
     openCompose({ isEmail: false, to: c.address });
@@ -72,34 +139,11 @@ export function ContactsPane() {
           </div>
         ) : (
           <ul className="py-1">
-            {contacts.map((c) => {
-              const name = c.name || localPart(c.address);
-              return (
-                <li key={c.address}>
-                  <button
-                    type="button"
-                    onClick={() => startChat(c)}
-                    className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-surface-2"
-                  >
-                    <UserAvatar
-                      name={name}
-                      address={c.address}
-                      size={44}
-                      isEmail={false}
-                      showBadge={false}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-body font-semibold text-ink-strong">
-                        {name}
-                      </div>
-                      <div className="truncate text-footnote text-faint">
-                        {c.phone || c.address}
-                      </div>
-                    </div>
-                  </button>
-                </li>
-              );
-            })}
+            {contacts.map((c) => (
+              <li key={c.address}>
+                <ContactRow c={c} onOpen={() => startChat(c)} />
+              </li>
+            ))}
           </ul>
         )}
       </div>

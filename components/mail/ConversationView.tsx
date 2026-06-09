@@ -31,6 +31,7 @@ import { Avatar } from "./Avatar";
 import { UserAvatar } from "./UserAvatar";
 import { AttachmentGrid } from "./AttachmentGrid";
 import { SwipeToReply } from "./SwipeToReply";
+import { VoiceMessage } from "./VoiceMessage";
 import { CallButtons } from "@/components/calls/CallButtons";
 import { EmailBody } from "./EmailBody";
 import { MessageComposer } from "./MessageComposer";
@@ -107,13 +108,6 @@ function fileKind(a: MailAttachment): "image" | "video" | "voice" | "file" {
   return "file";
 }
 
-function formatDur(s?: number): string {
-  if (!s || s < 0) return "";
-  const m = Math.floor(s / 60);
-  const sec = s % 60;
-  return `${m}:${sec < 10 ? "0" : ""}${sec}`;
-}
-
 function dayLabel(d: Date): string {
   if (isToday(d)) return "Today";
   if (isYesterday(d)) return "Yesterday";
@@ -154,8 +148,14 @@ const Attachments = memo(function Attachments({
   isOwn?: boolean;
 }) {
   const listened = useRef(false);
-  const images = attachments.filter((a) => fileKind(a) === "image" && a.url);
-  const rest = attachments.filter((a) => fileKind(a) !== "image");
+  const media = attachments.filter((a) => {
+    const k = fileKind(a);
+    return (k === "image" || k === "video") && a.url;
+  });
+  const rest = attachments.filter((a) => {
+    const k = fileKind(a);
+    return k !== "image" && k !== "video";
+  });
 
   function onVoicePlay() {
     // Mark inbound voice notes as listened once (the backend dedupes per user).
@@ -165,26 +165,18 @@ const Attachments = memo(function Attachments({
   }
   return (
     <div className="flex flex-col gap-1.5" onClick={(e) => e.stopPropagation()}>
-      {images.length > 0 && <AttachmentGrid images={images} />}
+      {media.length > 0 && <AttachmentGrid media={media} />}
       {rest.map((a) => {
         const k = fileKind(a);
-        if (k === "video")
-          return (
-            <video key={a.id} src={a.url} controls className="max-h-[280px] w-full rounded-lg" />
-          );
         if (k === "voice")
           return (
-            <div key={a.id} className="flex items-center gap-2">
-              <audio
-                src={a.url}
-                controls
-                onPlay={onVoicePlay}
-                className="h-9 max-w-[240px]"
-              />
-              {a.durationSec ? (
-                <span className="text-micro opacity-70">{formatDur(a.durationSec)}</span>
-              ) : null}
-            </div>
+            <VoiceMessage
+              key={a.id}
+              url={a.url}
+              durationSec={a.durationSec}
+              isOwn={isOwn}
+              onPlay={onVoicePlay}
+            />
           );
         return (
           <a
@@ -340,7 +332,6 @@ interface MenuPos {
 function BubbleMenu({
   message,
   isOwn,
-  isEmail,
   hasText,
   pos,
   onAction,
@@ -348,7 +339,6 @@ function BubbleMenu({
 }: {
   message: MailMessage;
   isOwn: boolean;
-  isEmail: boolean;
   hasText: boolean;
   pos: MenuPos;
   onAction: (a: MsgAction) => void;
@@ -358,10 +348,12 @@ function BubbleMenu({
   const items: { key: MsgAction; label: string; Icon: typeof Reply; danger?: boolean }[] =
     [];
   if (!deleted) {
+    // "Message info" first (WhatsApp-style): chat shows seen/delivered rosters,
+    // email shows the full From/To/Cc/Bcc headers.
+    items.push({ key: "info", label: "Message info", Icon: Info });
     items.push({ key: "reply", label: "Reply", Icon: Reply });
     if (hasText) items.push({ key: "copy", label: "Copy", Icon: Copy });
     items.push({ key: "forward", label: "Forward", Icon: Forward });
-    if (isEmail) items.push({ key: "info", label: "Message info", Icon: Info });
     if (isOwn && hasText) items.push({ key: "edit", label: "Edit", Icon: Pencil });
   }
   items.push({ key: "deleteForMe", label: "Delete for me", Icon: Trash2, danger: true });
@@ -490,6 +482,7 @@ function Bubble({
   // side has more room (down near the top, up near the bottom). Fixed-positioned
   // via a portal so it's never clipped by the scroll container.
   const bubbleRef = useRef<HTMLDivElement>(null);
+  const menuBtnRef = useRef<HTMLButtonElement>(null);
   const [menuPos, setMenuPos] = useState<MenuPos | null>(null);
   useLayoutEffect(() => {
     if (!menuOpen) {
@@ -497,7 +490,10 @@ function Bubble({
       setMenuPos(null);
       return;
     }
-    const el = bubbleRef.current;
+    // Anchor the menu to the ⋮ button (WhatsApp-style), falling back to the
+    // bubble if the trigger isn't the hover button (e.g. opened from the
+    // quick-react bar on touch).
+    const el = menuBtnRef.current ?? bubbleRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
     const horizontal = isOwn
@@ -506,8 +502,8 @@ function Bubble({
     const openDown = window.innerHeight - r.bottom >= r.top;
     setMenuPos(
       openDown
-        ? { top: r.bottom + 6, ...horizontal }
-        : { bottom: window.innerHeight - r.top + 6, ...horizontal },
+        ? { top: r.bottom + 4, ...horizontal }
+        : { bottom: window.innerHeight - r.top + 4, ...horizontal },
     );
   }, [menuOpen, isOwn]);
   // The menu is fixed-positioned; close it if the view scrolls or resizes.
@@ -560,7 +556,7 @@ function Bubble({
       {selectMode && (
         <span
           className={cn(
-            "flex h-5 w-5 shrink-0 items-center justify-center self-center rounded-full border transition-colors",
+            "mb-1 flex h-5 w-5 shrink-0 items-center justify-center self-end rounded-full border transition-colors",
             !selectable
               ? "border-transparent"
               : selected
@@ -594,14 +590,35 @@ function Bubble({
         {replied && !deleted && (
           <div
             className={cn(
-              "mb-0.5 max-w-full rounded-lg border-l-2 border-line-strong bg-surface-2 px-2 py-1 text-caption text-muted",
-              isOwn ? "self-end" : "self-start",
+              "mb-0.5 flex max-w-[220px] items-stretch gap-1.5 overflow-hidden rounded-[10px] py-1.5 pr-2.5",
+              isOwn ? "self-end bg-white/15" : "self-start bg-surface-2",
             )}
           >
-            <span className="font-semibold text-faint">{replied.from.name}: </span>
-            <span className="line-clamp-1">
-              {replied.text?.trim() || (replied.attachments?.length ? "📎 attachment" : "…")}
-            </span>
+            <span
+              className={cn(
+                "w-[3px] shrink-0 rounded-full",
+                isOwn ? "bg-white/70" : "bg-line-strong",
+              )}
+            />
+            <div className="min-w-0 py-px">
+              <div
+                className={cn(
+                  "truncate text-micro font-semibold leading-tight",
+                  isOwn ? "text-white" : "text-faint",
+                )}
+              >
+                {replied.from.name}
+              </div>
+              <div
+                className={cn(
+                  "truncate text-caption leading-tight",
+                  isOwn ? "text-white/70" : "text-muted",
+                )}
+              >
+                {replied.text?.trim() ||
+                  (replied.attachments?.length ? "📎 attachment" : "…")}
+              </div>
+            </div>
           </div>
         )}
 
@@ -629,6 +646,7 @@ function Bubble({
                 </button>
               )}
               <button
+                ref={menuBtnRef}
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
@@ -736,7 +754,6 @@ function Bubble({
             <BubbleMenu
               message={message}
               isOwn={isOwn}
-              isEmail={isEmail}
               hasText={Boolean(text)}
               pos={menuPos}
               onAction={onAction}
@@ -891,6 +908,15 @@ export function ConversationView({
   >(null);
   const [groupPanelOpen, setGroupPanelOpen] = useState(false);
   const [profilePanelOpen, setProfilePanelOpen] = useState(false);
+  // Email header → tap to reveal the participant list ("& N others" → who).
+  const [emailPartsOpen, setEmailPartsOpen] = useState(false);
+  // Group name shown in the header. The `title` prop comes from the static nav
+  // URL, so an in-place rename wouldn't reflect — track an override that the
+  // GroupPanel sets on a successful rename, reset when navigating threads.
+  const [renamedTitle, setRenamedTitle] = useState<string | null>(null);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => setRenamedTitle(null), [id]);
+  const liveTitle = renamedTitle ?? title;
   // Retry payloads for optimistic messages that failed to send.
   const pendingPayloads = useRef<Map<string, SendMessageInput>>(new Map());
   const localSeq = useRef(0);
@@ -1021,6 +1047,40 @@ export function ConversationView({
 
   const currentUserAddress = username ? `${username}${MAIL_DOMAIN}` : undefined;
 
+  // Email header (mirrors native EmailHeader): the "other" participants — the
+  // union of every loaded message's from/to/cc/bcc minus me — drive the title
+  // and the stacked avatar. Title = the single name, or "<First> & N others";
+  // the subject goes on row 2.
+  const emailParticipants = useMemo<ThreadParticipant[]>(() => {
+    if (!isEmail) return [];
+    const me = (currentUserAddress ?? "").toLowerCase();
+    const seen = new Set<string>();
+    const out: ThreadParticipant[] = [];
+    const add = (p?: ThreadParticipant) => {
+      const a = p?.address?.toLowerCase();
+      if (!p || !a || a === me || seen.has(a)) return;
+      seen.add(a);
+      out.push(p);
+    };
+    for (const m of fetched) {
+      add(m.from);
+      (m.to ?? []).forEach(add);
+      (m.cc ?? []).forEach(add);
+      (m.bcc ?? []).forEach(add);
+    }
+    return out;
+  }, [isEmail, fetched, currentUserAddress]);
+
+  const emailTitle = useMemo(() => {
+    if (!isEmail || emailParticipants.length === 0) return undefined;
+    const first = emailParticipants[0];
+    const firstName = first.name?.trim() || localPart(first.address ?? "");
+    const remaining = emailParticipants.length - 1;
+    return remaining === 0 ? firstName : `${firstName} & ${remaining} others`;
+  }, [isEmail, emailParticipants]);
+
+  const headerTitle = (isEmail ? emailTitle : undefined) ?? liveTitle;
+
   // Authoritative group roster from the chat detail (GET /threads/:id). This is
   // what makes externally-created groups (synced from other platforms, with no
   // addressed members in the local message history yet) show their members +
@@ -1109,6 +1169,20 @@ export function ConversationView({
     ]);
     att.clear();
     setReplyingTo(null);
+    // Groups have no single recipient — address the message to every member
+    // (minus me). Without this, the FIRST messages (before anyone has replied,
+    // so there's no inbound sender to borrow) go out with an empty toList and the
+    // backend rejects them (SendMessageDto.toList is ArrayMinSize(1)) → "Failed".
+    const selfAddr = (currentUserAddress ?? "").toLowerCase();
+    const groupTo = groupMembers
+      .filter((m) => m.address && m.address.toLowerCase() !== selfAddr)
+      .map((m) => ({ name: m.name, address: m.address as string }));
+    const toList =
+      isGroup && groupTo.length
+        ? groupTo
+        : recipient
+          ? [{ address: recipient }]
+          : groupTo;
     doSend(localId, {
       refId: localId,
       text,
@@ -1118,7 +1192,7 @@ export function ConversationView({
       subject: isEmail && subject ? `Re: ${stripRe(subject)}` : undefined,
       topicId,
       threadId: id,
-      toList: recipient ? [{ address: recipient }] : [],
+      toList,
       replyTo: replyHeaderId,
     });
   }
@@ -1317,42 +1391,101 @@ export function ConversationView({
           </button>
         ) : (
           <>
-            {isGroup && groupMembers.length >= 2 ? (
+            {(isGroup && groupMembers.length >= 2) ||
+            (isEmail && emailParticipants.length >= 2) ? (
               <UserAvatar
-                name={title}
-                people={groupMembers.map((m) => ({
+                name={headerTitle}
+                people={(isGroup ? groupMembers : emailParticipants).map((m) => ({
                   name: m.name,
                   address: m.address,
                 }))}
                 isEmail={isEmail}
                 size={36}
               />
+            ) : isEmail && emailParticipants[0]?.address ? (
+              <UserAvatar
+                name={headerTitle}
+                address={emailParticipants[0].address}
+                isEmail
+                size={36}
+                showBadge={false}
+              />
             ) : (
               <Avatar
-                name={title}
-                seed={recipientAddress || title}
+                name={headerTitle}
+                seed={recipientAddress || headerTitle}
                 isEmail={isEmail}
                 size={36}
                 online={Boolean(recipientUsername && online)}
               />
             )}
-            <div className="min-w-0">
-              <div className="truncate text-callout font-bold text-ink-strong">
-                {title}
-              </div>
+            <div className="relative min-w-0">
               {isEmail ? (
-                <div className="truncate text-caption text-faint">Email thread</div>
-              ) : isGroup ? (
                 <button
                   type="button"
-                  onClick={() => setGroupPanelOpen(true)}
-                  className="truncate text-left text-caption text-faint hover:text-ink"
+                  onClick={() =>
+                    emailParticipants.length && setEmailPartsOpen((v) => !v)
+                  }
+                  className="block max-w-full text-left"
+                  title={emailParticipants
+                    .map((p) => p.name || p.address)
+                    .join(", ")}
                 >
-                  {groupMembers.length
-                    ? `${groupMembers.length} members · manage`
-                    : "Group chat"}
+                  <div className="truncate text-callout font-bold text-ink-strong">
+                    {headerTitle}
+                  </div>
+                  <div className="truncate text-caption text-faint">
+                    Subject: {subject?.trim() || "(no subject)"}
+                  </div>
                 </button>
-              ) : null}
+              ) : (
+                <>
+                  <div className="truncate text-callout font-bold text-ink-strong">
+                    {headerTitle}
+                  </div>
+                  {isGroup ? (
+                    <button
+                      type="button"
+                      onClick={() => setGroupPanelOpen(true)}
+                      className="truncate text-left text-caption text-faint hover:text-ink"
+                    >
+                      {groupMembers.length
+                        ? `${groupMembers.length} members · manage`
+                        : "Group chat"}
+                    </button>
+                  ) : null}
+                </>
+              )}
+              {isEmail && emailPartsOpen && emailParticipants.length > 0 && (
+                <div className="absolute left-0 top-full z-40 mt-1 max-h-72 w-72 overflow-y-auto rounded-xl border border-line-strong bg-surface-2 p-1 shadow-xl">
+                  <div className="px-2 py-1 text-micro font-semibold uppercase tracking-wide text-faint">
+                    {emailParticipants.length} participant
+                    {emailParticipants.length > 1 ? "s" : ""}
+                  </div>
+                  {emailParticipants.map((p) => (
+                    <div
+                      key={p.address}
+                      className="flex items-center gap-2 rounded-lg px-2 py-1.5"
+                    >
+                      <UserAvatar
+                        name={p.name || localPart(p.address ?? "")}
+                        address={p.address}
+                        isEmail
+                        size={28}
+                        showBadge={false}
+                      />
+                      <div className="min-w-0">
+                        <div className="truncate text-footnote text-ink">
+                          {p.name || localPart(p.address ?? "")}
+                        </div>
+                        <div className="truncate text-micro text-faint">
+                          {p.address}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </>
         )}
@@ -1551,9 +1684,10 @@ export function ConversationView({
         <GroupPanel
           topicId={topicId ?? id}
           threadId={id}
-          name={title}
+          name={liveTitle}
           members={groupMembers}
           currentUserAddress={currentUserAddress}
+          onRenamed={setRenamedTitle}
           onClose={() => setGroupPanelOpen(false)}
         />
       )}
@@ -1601,7 +1735,12 @@ export function ConversationView({
           const m = messages.find((x) => x.id === infoForId);
           if (!m) return null;
           return (
-            <MessageInfoSheet message={m} onClose={() => setInfoForId(null)} />
+            <MessageInfoSheet
+              message={m}
+              isEmail={isEmail}
+              isOwn={isOwnMessage(m, username)}
+              onClose={() => setInfoForId(null)}
+            />
           );
         })()}
     </div>

@@ -4,12 +4,28 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { io, type Socket } from "socket.io-client";
 import { useRealtime } from "@/lib/realtime/store";
-import { bumpThread } from "@/lib/realtime/threadCache";
+import { applyThreadEvent, bumpThread } from "@/lib/realtime/threadCache";
 import { mapMessage } from "@/lib/api/mappers";
-import type { BackendMessage } from "@/lib/api/backend-types";
+import type { BackendMessage, BackendThread } from "@/lib/api/backend-types";
 import type { MailMessage } from "@/lib/types";
 
-type IncomingMessage = BackendMessage & { threadId?: string; topicId?: string };
+type IncomingMessage = BackendMessage & {
+  threadId?: string;
+  topicId?: string;
+  /** Present on THREAD events (vs message events) — see isThreadEvent. */
+  lastMessage?: BackendMessage;
+};
+
+/*
+  The backend overloads `create`/`update`: the SAME event name carries both a new
+  MESSAGE row and the parallel THREAD row (for the conversation list). They're
+  told apart by shape (mirrors native useThreadUpdates / useMessageUpdates):
+    - thread event  ⇔ `lastMessage` present, no `headerId`
+    - message event ⇔ `headerId` + `messageId` present
+  Message events drive the open conversation; thread events drive the list.
+*/
+const isThreadEvent = (m: IncomingMessage) =>
+  Boolean(m?.lastMessage) && !m?.headerId;
 
 const WS_URL = process.env.NEXT_PUBLIC_SOCKET_URL ?? "";
 
@@ -51,14 +67,19 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       }, 1200);
     };
 
-    // Receipts / reactions / edits → refresh the OPEN thread only. Deliberately
-    // does NOT refetch the thread LISTS: a list refetch here would return the
-    // backend's not-yet-updated ordering and undo the optimistic bump.
+    // Receipts / reactions / edits → refresh the OPEN thread AND converge the
+    // conversation LISTS to server truth. A plain list refetch used to return
+    // not-yet-committed ordering and undo the optimistic bump — but
+    // keepRecentlyBumped (threads queryFn) now keeps any freshly-bumped thread
+    // for a few seconds, so this is safe and makes the inbox reflect reactions /
+    // edits / receipts / deletes in real time (≤700ms), not just on the 20s poll.
     const refreshOther = () => {
       if (otherTimer) return;
       otherTimer = setTimeout(() => {
         otherTimer = null;
         qc.invalidateQueries({ queryKey: ["messages"] });
+        qc.invalidateQueries({ queryKey: ["threads"] });
+        qc.invalidateQueries({ queryKey: ["chatThreads"] });
       }, 700);
     };
 
@@ -190,6 +211,12 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         // New message → open thread + list reorder instantly (optimistic). Only
         // a brand-new conversation (not in the list) needs the delayed refetch.
         socket.on("create", (msg: IncomingMessage) => {
+          // Thread event → reconcile the LIST instantly (new convo / preview /
+          // order / unread) and stop; it is NOT a message for the open thread.
+          if (isThreadEvent(msg)) {
+            applyThreadEvent(qc, msg as unknown as BackendThread);
+            return;
+          }
           // Reaction reply-messages (isHidden) never enter the thread; they only
           // update the list preview (like a native reaction notification). But
           // they DO mean an existing message's reactions changed, so refresh the
@@ -206,7 +233,15 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         });
         // Receipts / edits on existing messages → apply the payload instantly
         // (the refetch in onAny stays as a backstop for anything not in cache).
-        socket.on("update", applyUpdate);
+        socket.on("update", (msg: IncomingMessage) => {
+          // Thread event (edit/reaction/delete reflected in lastMessage) →
+          // reconcile the LIST preview/order/unread instantly, like native.
+          if (isThreadEvent(msg)) {
+            applyThreadEvent(qc, msg as unknown as BackendThread);
+            return;
+          }
+          applyUpdate(msg);
+        });
         // Other server events (receipts, edits, reactions, deletes) → batched.
         socket.onAny((event: string) => {
           if (
