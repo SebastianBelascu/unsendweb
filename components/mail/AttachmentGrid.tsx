@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, type CSSProperties } from "react";
-import { Play } from "lucide-react";
 import type { MailAttachment } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { BlurImage } from "./BlurImage";
@@ -39,23 +38,34 @@ function Tile({
   style?: CSSProperties;
   overlay?: string;
 }) {
-  const video = isVideo(a);
+  // Videos play inline with native controls (poster + play button) — reliable,
+  // no lightbox/autoplay quirks. Images open the lightbox on click.
+  if (isVideo(a)) {
+    return (
+      <div
+        className={cn("relative overflow-hidden rounded-lg bg-black", className)}
+        style={style}
+      >
+        <video
+          src={a.url}
+          poster={a.posterUrl}
+          controls
+          playsInline
+          preload="metadata"
+          className="h-full w-full bg-black object-contain"
+        />
+      </div>
+    );
+  }
   return (
     <div className={cn("relative cursor-pointer", className)} style={style}>
       <BlurImage
-        url={video ? a.posterUrl : a.url}
-        blurhash={video ? undefined : a.placeholder}
+        url={a.url}
+        blurhash={a.placeholder}
         alt={a.filename}
         className="h-full w-full rounded-lg"
         onClick={onOpen}
       />
-      {video && (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/55">
-            <Play className="h-6 w-6 translate-x-0.5 text-white" fill="currentColor" />
-          </span>
-        </div>
-      )}
       {overlay && (
         <div
           onClick={onOpen}
@@ -87,7 +97,12 @@ export function AttachmentGrid({ media }: { media: MailAttachment[] }) {
           <Tile
             a={a}
             onOpen={() => setOpen(0)}
-            style={{ aspectRatio: aspectFor(a.orientation) }}
+            style={{
+              aspectRatio:
+                isVideo(a) && (!a.orientation || a.orientation === "box")
+                  ? "16 / 9"
+                  : aspectFor(a.orientation),
+            }}
           />
         </div>
         {lightbox}
