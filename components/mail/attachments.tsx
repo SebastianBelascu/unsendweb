@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FileText, Loader2, Mic, Paperclip, Send, Trash2, X } from "lucide-react";
+import { FileText, Loader2, Mic, Paperclip, Plus, Send, Trash2, X } from "lucide-react";
 import { uploadAttachment, type AttachmentDto } from "@/lib/api/attachments";
 import { isProcessableImage, processImageFile } from "@/lib/media/image";
 import { generateVideoPoster } from "@/lib/media/video";
@@ -416,6 +416,78 @@ export function VoiceRecorder({
         <Send className="h-5 w-5" />
       </button>
     </div>
+  );
+}
+
+/**
+ * Native-style "+" attach menu: a plus button (rotates to ×) that pops a small
+ * tray of capsule pills — Photos and Files — mirroring the iOS compose "+".
+ * Both route into the same processing/upload pipeline as drag-drop/paste.
+ */
+export function AttachMenu({ onFiles }: { onFiles: (files: File[]) => void }) {
+  const [open, setOpen] = useState(false);
+  const photosRef = useRef<HTMLInputElement>(null);
+  const filesRef = useRef<HTMLInputElement>(null);
+
+  const pick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    if (files.length) onFiles(files);
+    e.target.value = "";
+    setOpen(false);
+  };
+
+  return (
+    <div className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-label="Add attachment"
+        className="flex h-[42px] w-[42px] items-center justify-center rounded-full text-faint transition-colors hover:bg-surface-2 hover:text-ink"
+      >
+        <Plus
+          className={cn(
+            "h-[22px] w-[22px] transition-transform duration-200",
+            open && "rotate-45 text-accent",
+          )}
+        />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute bottom-[calc(100%+8px)] left-0 z-50 flex gap-2">
+            <AttachPill label="Photos" onClick={() => photosRef.current?.click()} />
+            <AttachPill label="Files" onClick={() => filesRef.current?.click()} />
+          </div>
+        </>
+      )}
+      <input
+        ref={photosRef}
+        type="file"
+        accept="image/*,video/*"
+        multiple
+        hidden
+        onChange={pick}
+      />
+      <input ref={filesRef} type="file" multiple hidden onChange={pick} />
+    </div>
+  );
+}
+
+export function AttachPill({
+  label,
+  onClick,
+}: {
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="whitespace-nowrap rounded-full border border-line-strong bg-surface-2 px-4 py-2 text-footnote font-medium text-ink shadow-lg transition-colors hover:bg-surface-3"
+    >
+      {label}
+    </button>
   );
 }
 

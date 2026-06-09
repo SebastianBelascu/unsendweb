@@ -7,7 +7,7 @@ import { ArrowLeft, CheckCircle2, Loader2, Send, X } from "lucide-react";
 import { RecipientInput, type Recipient } from "./RecipientInput";
 import { localPart } from "@/lib/identity";
 import {
-  AttachButton,
+  AttachMenu,
   AttachmentTray,
   VoiceRecorder,
   useComposerAttachments,
@@ -372,7 +372,7 @@ export function Composer({
       <div className="border-t border-line">
         <AttachmentTray items={att.pending} onRemove={att.remove} />
         <footer className="relative flex items-center gap-3 px-4 py-3">
-          <AttachButton onFiles={att.addFiles} />
+          <AttachMenu onFiles={att.addFiles} />
           <VoiceRecorder
             onComplete={att.addVoice}
             accent={isEmail ? "email" : "chat"}

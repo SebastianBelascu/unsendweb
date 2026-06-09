@@ -146,7 +146,13 @@ export function RecipientInput({
             onFocus={() => setOpen(true)}
             onBlur={() => setTimeout(() => setOpen(false), 150)}
             placeholder={value.length === 0 ? "Search people…" : ""}
-            className="min-w-[120px] flex-1 bg-transparent py-1 text-body text-ink-strong outline-none placeholder:text-faint"
+            className={cn(
+              // Stretch only when there are no chips (so the placeholder/typing
+              // has room); once chips exist, the input sits snug after them
+              // instead of a big empty field filling the row.
+              "min-w-[80px] bg-transparent py-1 text-body text-ink-strong outline-none placeholder:text-faint",
+              value.length === 0 && "flex-1",
+            )}
           />
         </div>
 

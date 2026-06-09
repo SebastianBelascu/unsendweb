@@ -34,7 +34,7 @@ import { SwipeToReply } from "./SwipeToReply";
 import { VoiceMessage } from "./VoiceMessage";
 import { CallButtons } from "@/components/calls/CallButtons";
 import { EmailBody } from "./EmailBody";
-import { MessageComposer } from "./MessageComposer";
+import { MessageComposer, type ComposerRecipients } from "./MessageComposer";
 import {
   dtosToMailAttachments,
   useComposerAttachments,
@@ -1114,6 +1114,30 @@ export function ConversationView({
     return [...map.values()];
   }, [rosterParticipants, messages, isGroup, currentUserAddress, me, username]);
 
+  // Default recipients/subject for the composer "+" panel. The user can edit
+  // these (To / Cc / Bcc / Subject) before sending; edits override the defaults.
+  const composerInitialTo = useMemo<{ name?: string; address: string }[]>(() => {
+    const self = (currentUserAddress ?? "").toLowerCase();
+    if (isGroup)
+      return groupMembers
+        .filter((m) => m.address && m.address.toLowerCase() !== self)
+        .map((m) => ({ name: m.name, address: m.address as string }));
+    if (isEmail)
+      return emailParticipants
+        .filter((p) => p.address)
+        .map((p) => ({ name: p.name, address: p.address as string }));
+    return recipient ? [{ address: recipient }] : [];
+  }, [
+    isGroup,
+    isEmail,
+    groupMembers,
+    emailParticipants,
+    recipient,
+    currentUserAddress,
+  ]);
+  const composerInitialSubject =
+    isEmail && subject ? `Re: ${stripRe(subject)}` : "";
+
   function doSend(localId: string, payload: SendMessageInput) {
     pendingPayloads.current.set(localId, payload);
     setSent((cur) =>
@@ -1136,8 +1160,9 @@ export function ConversationView({
     });
   }
 
-  // Called by MessageComposer with the trimmed text. Edit → PATCH; else send.
-  function onSubmit(text: string) {
+  // Called by MessageComposer with the trimmed text (+ the "+" panel's edited
+  // recipients/subject when present). Edit → PATCH; else send.
+  function onSubmit(text: string, recipients?: ComposerRecipients) {
     if (editing) {
       if (!text) return;
       msgActions.edit.mutate({ messageId: editing.id, text });
@@ -1177,22 +1202,33 @@ export function ConversationView({
     const groupTo = groupMembers
       .filter((m) => m.address && m.address.toLowerCase() !== selfAddr)
       .map((m) => ({ name: m.name, address: m.address as string }));
-    const toList =
+    const fallbackTo =
       isGroup && groupTo.length
         ? groupTo
         : recipient
           ? [{ address: recipient }]
           : groupTo;
+    // The "+" panel's recipients win when set; otherwise the thread defaults.
+    const toList = recipients?.toList?.length ? recipients.toList : fallbackTo;
+    const ccList = recipients?.ccList?.length ? recipients.ccList : undefined;
+    const bccList = recipients?.bccList?.length ? recipients.bccList : undefined;
+    const subjectToSend = recipients?.subject?.trim()
+      ? recipients.subject.trim()
+      : isEmail && subject
+        ? `Re: ${stripRe(subject)}`
+        : undefined;
     doSend(localId, {
       refId: localId,
       text,
       attachments: dtos.length ? dtos : undefined,
       isEmail,
       isChat: !isEmail,
-      subject: isEmail && subject ? `Re: ${stripRe(subject)}` : undefined,
+      subject: subjectToSend,
       topicId,
       threadId: id,
       toList,
+      ccList,
+      bccList,
       replyTo: replyHeaderId,
     });
   }
@@ -1635,11 +1671,14 @@ export function ConversationView({
           </div>
         ) : (
           <MessageComposer
+            key={id}
             threadId={id}
             isEmail={isEmail}
             att={att}
             editing={editing}
             replyingTo={replyingTo}
+            initialTo={composerInitialTo}
+            initialSubject={composerInitialSubject}
             onSubmit={onSubmit}
             onCancelEdit={() => setEditing(null)}
             onCancelReply={() => setReplyingTo(null)}

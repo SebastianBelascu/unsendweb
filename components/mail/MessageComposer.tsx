@@ -1,21 +1,33 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { SendHorizontal, X } from "lucide-react";
+import { Plus, SendHorizontal, X } from "lucide-react";
 import {
-  AttachButton,
+  AttachPill,
   AttachmentTray,
   VoiceRecorder,
   type ComposerAttachments,
 } from "./attachments";
+import { RecipientInput, type Recipient } from "./RecipientInput";
 import { clearDraft, loadDraft, saveDraft } from "@/lib/drafts";
 import { cn } from "@/lib/utils";
 import type { MailMessage } from "@/lib/types";
 
+export interface ComposerRecipients {
+  toList: Recipient[];
+  ccList: Recipient[];
+  bccList: Recipient[];
+  subject: string;
+}
+
 /**
  * Isolated message composer. Owns the `draft` locally so typing NEVER
- * re-renders the message list (WhatsApp-smooth). The parent keeps attachments,
- * editing + reply state and the actual send logic (via onSubmit).
+ * re-renders the message list (WhatsApp-smooth). The "+" button toggles the
+ * native-style info panel — recipients (To / Cc / Bcc), subject, and the
+ * attachment pills — so you can edit who you're sending to without leaving the
+ * thread. Recipient edits are overrides on top of the thread's defaults; until
+ * you touch a field it tracks the live default. Mount with a `key={threadId}`
+ * so the overrides reset per conversation.
  */
 export function MessageComposer({
   threadId,
@@ -23,6 +35,10 @@ export function MessageComposer({
   att,
   editing,
   replyingTo,
+  initialTo,
+  initialCc = [],
+  initialBcc = [],
+  initialSubject = "",
   onSubmit,
   onCancelEdit,
   onCancelReply,
@@ -33,13 +49,33 @@ export function MessageComposer({
   att: ComposerAttachments;
   editing: { id: string; text: string } | null;
   replyingTo: MailMessage | null;
-  onSubmit: (text: string) => void;
+  initialTo: Recipient[];
+  initialCc?: Recipient[];
+  initialBcc?: Recipient[];
+  initialSubject?: string;
+  onSubmit: (text: string, recipients?: ComposerRecipients) => void;
   onCancelEdit: () => void;
   onCancelReply: () => void;
   emitTyping: (typing: boolean) => void;
 }) {
   const [draft, setDraft] = useState("");
+  const [infoOpen, setInfoOpen] = useState(false);
+  // Recipient/subject overrides — null means "track the thread default".
+  const [toOverride, setToOverride] = useState<Recipient[] | null>(null);
+  const [ccOverride, setCcOverride] = useState<Recipient[] | null>(null);
+  const [bccOverride, setBccOverride] = useState<Recipient[] | null>(null);
+  const [subjOverride, setSubjOverride] = useState<string | null>(null);
+  const [showCcBcc, setShowCcBcc] = useState(
+    initialCc.length > 0 || initialBcc.length > 0,
+  );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const photosRef = useRef<HTMLInputElement>(null);
+  const filesRef = useRef<HTMLInputElement>(null);
+
+  const toR = toOverride ?? initialTo;
+  const ccR = ccOverride ?? initialCc;
+  const bccR = bccOverride ?? initialBcc;
+  const subj = subjOverride ?? initialSubject;
 
   // Load the saved draft on thread change; load the message text when entering
   // edit mode, and restore the saved draft when leaving it.
@@ -48,21 +84,17 @@ export function MessageComposer({
     setDraft(editing ? editing.text : loadDraft(threadId));
   }, [threadId, editing]);
 
-  // Auto-grow the textarea to fit its content (wrapping onto multiple lines)
-  // up to a max height, after which it scrolls — never an infinite single line.
+  // Auto-grow the textarea to fit its content up to a max height.
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "auto";
     const full = el.scrollHeight;
     el.style.height = `${Math.min(full, 140)}px`;
-    // Show the scrollbar only once the text actually overflows the max height —
-    // never on an empty / short input.
     el.style.overflowY = full > 140 ? "auto" : "hidden";
   }, [draft]);
 
-  // Entering reply/edit → focus the input immediately (caret at the end) so you
-  // can just start typing — no extra tap. Mirrors WhatsApp's swipe-to-reply.
+  // Entering reply/edit → focus the input immediately (caret at the end).
   useEffect(() => {
     if (!replyingTo && !editing) return;
     const el = textareaRef.current;
@@ -83,10 +115,7 @@ export function MessageComposer({
     emitTyping(v.trim().length > 0);
   }
 
-  // Paste an image/file straight from the clipboard (e.g. a screenshot or a
-  // copied photo) → attach it. Skipped while editing (an edit can't carry new
-  // attachments). Files flow through the same processing/upload pipeline as the
-  // picker, so pasted images get compressed + a blurhash too.
+  // Paste an image/file straight from the clipboard → attach it.
   function onPaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
     if (editing) return;
     const dt = e.clipboardData;
@@ -107,6 +136,12 @@ export function MessageComposer({
     }
   }
 
+  function pickFiles(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    if (files.length) att.addFiles(files);
+    e.target.value = "";
+  }
+
   function handleSend() {
     const text = draft.trim();
     if (editing) {
@@ -116,10 +151,11 @@ export function MessageComposer({
       return;
     }
     if (!canSend) return;
-    onSubmit(text);
+    onSubmit(text, { toList: toR, ccList: ccR, bccList: bccR, subject: subj });
     setDraft("");
     clearDraft(threadId);
     emitTyping(false);
+    setInfoOpen(false);
   }
 
   const accent = isEmail ? "email" : "chat";
@@ -155,10 +191,85 @@ export function MessageComposer({
         </div>
       )}
 
+      {/* "+" info panel: recipients + cc/bcc + subject + attachment pills. */}
+      {infoOpen && !editing && (
+        <div className="border-b border-line">
+          <RecipientInput
+            label="To"
+            value={toR}
+            onChange={setToOverride}
+            allowFreeText={isEmail}
+          />
+          {isEmail && !showCcBcc && (
+            <button
+              type="button"
+              onClick={() => setShowCcBcc(true)}
+              className="px-6 py-1.5 text-footnote text-link hover:underline"
+            >
+              Add Cc / Bcc
+            </button>
+          )}
+          {isEmail && showCcBcc && (
+            <>
+              <RecipientInput
+                label="Cc"
+                value={ccR}
+                onChange={setCcOverride}
+                allowFreeText
+              />
+              <RecipientInput
+                label="Bcc"
+                value={bccR}
+                onChange={setBccOverride}
+                allowFreeText
+              />
+            </>
+          )}
+          {isEmail && (
+            <label className="flex items-center gap-3 border-b border-line px-6 py-2.5">
+              <span className="w-12 shrink-0 text-footnote text-faint">
+                Subject
+              </span>
+              <input
+                value={subj}
+                onChange={(e) => setSubjOverride(e.target.value)}
+                placeholder="Subject"
+                className="w-full bg-transparent text-body text-ink-strong outline-none placeholder:text-faint"
+              />
+            </label>
+          )}
+          {/* Align the pills with the recipient input column (same w-12 label
+              gutter + gap as RecipientInput) so they start where "To"'s value
+              starts, not at the far-left edge. */}
+          <div className="flex items-center gap-3 px-6 pb-3 pt-2">
+            <span className="w-12 shrink-0" aria-hidden />
+            <div className="flex gap-2">
+              <AttachPill
+                label="Photos"
+                onClick={() => photosRef.current?.click()}
+              />
+              <AttachPill label="Files" onClick={() => filesRef.current?.click()} />
+            </div>
+          </div>
+        </div>
+      )}
+
       <AttachmentTray items={att.pending} onRemove={att.remove} />
 
       <footer className="relative flex items-end gap-1 px-3 py-3">
-        <AttachButton onFiles={att.addFiles} />
+        <button
+          type="button"
+          onClick={() => setInfoOpen((v) => !v)}
+          aria-label="Recipients and attachments"
+          className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full text-faint transition-colors hover:bg-surface-2 hover:text-ink"
+        >
+          <Plus
+            className={cn(
+              "h-[22px] w-[22px] transition-transform duration-200",
+              infoOpen && "rotate-45 text-accent",
+            )}
+          />
+        </button>
         <textarea
           ref={textareaRef}
           value={draft}
@@ -194,6 +305,15 @@ export function MessageComposer({
         ) : (
           <VoiceRecorder onComplete={att.addVoice} accent={accent} />
         )}
+        <input
+          ref={photosRef}
+          type="file"
+          accept="image/*,video/*"
+          multiple
+          hidden
+          onChange={pickFiles}
+        />
+        <input ref={filesRef} type="file" multiple hidden onChange={pickFiles} />
       </footer>
     </div>
   );
