@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Inbox, Mail, MessageCircle, Phone, Settings } from "lucide-react";
+import { Inbox, Mail, MessageCircle, Phone, Settings, Users } from "lucide-react";
 import { NAV_SECTIONS, type NavSection } from "@/lib/inbox-view";
 import { cn } from "@/lib/utils";
 
@@ -12,6 +12,7 @@ const META: Record<NavSection, { label: string; icon: typeof MessageCircle }> = 
   chats: { label: "Chats", icon: MessageCircle },
   emails: { label: "Emails", icon: Mail },
   calls: { label: "Calls", icon: Phone },
+  contacts: { label: "Contacts", icon: Users },
 };
 
 /** Native-style bottom tab bar (mobile only) — mirrors the desktop NavRail. */

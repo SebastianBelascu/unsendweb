@@ -3,11 +3,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FileText, Loader2, Mic, Paperclip, Send, Trash2, X } from "lucide-react";
 import { uploadAttachment, type AttachmentDto } from "@/lib/api/attachments";
+import { isProcessableImage, processImageFile } from "@/lib/media/image";
 import type { MailAttachment } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
+/** Hard cap for raw uploads (images are compressed first, so this guards
+ *  videos/files). Oversized files are rejected with an error chip. */
+const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
+
 export interface PendingAttachment {
   localId: string;
+  /** Stable attachment id sent to the backend (native keys its image cache on this). */
+  id: string;
   name: string;
   type: string;
   size: number;
@@ -15,13 +22,22 @@ export interface PendingAttachment {
   previewUrl?: string;
   durationSec?: number;
   isVoice?: boolean;
+  /** Blurhash (images) for progressive load; duration string is sent separately. */
+  placeholder?: string;
+  orientation?: string;
   progress: number;
   status: "uploading" | "done" | "error";
+  /** Human-readable failure reason for the tray. */
+  error?: string;
   dto?: AttachmentDto;
 }
 
 let _seq = 0;
 const newLocalId = () => `pa-${_seq++}-${Date.now()}`;
+const newAttachmentId = () =>
+  typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `att-${_seq++}-${Date.now()}`;
 
 /** Manages a pending-attachment tray that uploads each file to S3 as it is added. */
 export function useComposerAttachments() {
@@ -32,35 +48,68 @@ export function useComposerAttachments() {
       cur.map((x) => (x.localId === localId ? { ...x, ...p } : x)),
     );
 
-  const startUpload = useCallback((entry: PendingAttachment, file: File) => {
-    uploadAttachment(file, {
-      placeholder:
-        entry.durationSec != null ? String(entry.durationSec) : undefined,
-      onProgress: (pct) => patch(entry.localId, { progress: pct }),
-    })
-      .then((dto) => patch(entry.localId, { status: "done", progress: 100, dto }))
-      .catch(() => patch(entry.localId, { status: "error" }));
-  }, []);
+  // Process (images only) then upload. Resizing/compression + blurhash happen
+  // here so the AttachmentDto carries the same placeholder/orientation the
+  // native app sends; if processing fails (e.g. an undecodable format) we fall
+  // back to uploading the original bytes so the send still works.
+  const prepareAndUpload = useCallback(
+    async (entry: PendingAttachment, file: File) => {
+      let blob: Blob = file;
+      let filename = entry.name;
+      let type = entry.type;
+      let placeholder =
+        entry.durationSec != null ? String(entry.durationSec) : undefined;
+      let orientation: string | undefined;
+      try {
+        if (isProcessableImage(file.type)) {
+          const p = await processImageFile(file);
+          blob = p.blob;
+          filename = p.filename;
+          type = p.type;
+          placeholder = p.blurhash;
+          orientation = p.orientation;
+          patch(entry.localId, { type, placeholder, orientation });
+        }
+        const dto = await uploadAttachment(blob, {
+          id: entry.id,
+          filename,
+          type,
+          size: blob.size,
+          placeholder,
+          orientation,
+          onProgress: (pct) => patch(entry.localId, { progress: pct }),
+        });
+        patch(entry.localId, { status: "done", progress: 100, dto });
+      } catch {
+        patch(entry.localId, { status: "error", error: "Upload failed" });
+      }
+    },
+    [],
+  );
 
   const addFiles = useCallback(
     (files: File[]) => {
       for (const file of files) {
         const isImg = file.type.startsWith("image");
         const isVid = file.type.startsWith("video");
+        const tooBig = file.size > MAX_ATTACHMENT_BYTES;
         const entry: PendingAttachment = {
           localId: newLocalId(),
+          id: newAttachmentId(),
           name: file.name || "file",
           type: file.type || "application/octet-stream",
           size: file.size,
-          previewUrl: isImg || isVid ? URL.createObjectURL(file) : undefined,
+          previewUrl:
+            isImg || isVid ? URL.createObjectURL(file) : undefined,
           progress: 0,
-          status: "uploading",
+          status: tooBig ? "error" : "uploading",
+          error: tooBig ? "File too large (max 100MB)" : undefined,
         };
         setPending((cur) => [...cur, entry]);
-        startUpload(entry, file);
+        if (!tooBig) void prepareAndUpload(entry, file);
       }
     },
-    [startUpload],
+    [prepareAndUpload],
   );
 
   const addVoice = useCallback(
@@ -74,6 +123,7 @@ export function useComposerAttachments() {
       const file = new File([blob], `voice-${Date.now()}.${ext}`, { type });
       const entry: PendingAttachment = {
         localId: newLocalId(),
+        id: newAttachmentId(),
         name: file.name,
         type,
         size: file.size,
@@ -83,9 +133,9 @@ export function useComposerAttachments() {
         status: "uploading",
       };
       setPending((cur) => [...cur, entry]);
-      startUpload(entry, file);
+      void prepareAndUpload(entry, file);
     },
-    [startUpload],
+    [prepareAndUpload],
   );
 
   const remove = useCallback((localId: string) => {
@@ -135,16 +185,23 @@ export type ComposerAttachments = ReturnType<typeof useComposerAttachments>;
 
 /** Map the just-uploaded DTOs into view attachments for an optimistic bubble. */
 export function dtosToMailAttachments(dtos: AttachmentDto[]): MailAttachment[] {
-  return dtos.map((d, i) => ({
-    id: d.id || d.url || `att-${i}`,
-    filename: d.title,
-    url: d.url,
-    type: d.type,
-    durationSec:
-      d.type.startsWith("audio") && d.placeholder
-        ? parseInt(d.placeholder, 10)
-        : undefined,
-  }));
+  return dtos.map((d, i) => {
+    const isImage = d.type.startsWith("image");
+    return {
+      id: d.id || d.url || `att-${i}`,
+      filename: d.title,
+      url: d.url,
+      type: d.type,
+      // For images, `placeholder` is the blurhash (progressive load). For voice
+      // it's the duration — read out into durationSec instead.
+      placeholder: isImage ? d.placeholder : undefined,
+      orientation: d.orientation,
+      durationSec:
+        d.type.startsWith("audio") && d.placeholder
+          ? parseInt(d.placeholder, 10)
+          : undefined,
+    };
+  });
 }
 
 function fmtDur(s?: number): string {
@@ -186,9 +243,14 @@ export function AttachmentTray({
             <div className="truncate text-caption text-ink">
               {a.isVoice ? `Voice · ${fmtDur(a.durationSec)}` : a.name}
             </div>
-            <div className="text-micro text-faint">
+            <div
+              className={cn(
+                "text-micro text-faint",
+                a.status === "error" && "text-accent",
+              )}
+            >
               {a.status === "error"
-                ? "Upload failed"
+                ? a.error || "Upload failed"
                 : a.status === "uploading"
                   ? `${a.progress}%`
                   : "Ready"}

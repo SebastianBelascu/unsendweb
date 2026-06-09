@@ -6,7 +6,7 @@ import type { MailFilter, ThreadListItem } from "./types";
  * - `InboxFilter` (top chips) = the BUCKET/filter applied within that type.
  * They compose: e.g. rail "Emails" + chip "Bookmarks" = bookmarked emails.
  */
-export type NavSection = "all" | "chats" | "emails" | "calls";
+export type NavSection = "all" | "chats" | "emails" | "calls" | "contacts";
 export type InboxFilter =
   | "all"
   | "unread"
@@ -21,6 +21,7 @@ export const NAV_SECTIONS: { key: NavSection; label: string }[] = [
   { key: "chats", label: "Chats" },
   { key: "emails", label: "Emails" },
   { key: "calls", label: "Calls" },
+  { key: "contacts", label: "Contacts" },
 ];
 
 /** Filter chips shown on top of every list section (except calls). */

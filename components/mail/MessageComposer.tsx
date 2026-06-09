@@ -54,8 +54,23 @@ export function MessageComposer({
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
+    const full = el.scrollHeight;
+    el.style.height = `${Math.min(full, 140)}px`;
+    // Show the scrollbar only once the text actually overflows the max height —
+    // never on an empty / short input.
+    el.style.overflowY = full > 140 ? "auto" : "hidden";
   }, [draft]);
+
+  // Entering reply/edit → focus the input immediately (caret at the end) so you
+  // can just start typing — no extra tap. Mirrors WhatsApp's swipe-to-reply.
+  useEffect(() => {
+    if (!replyingTo && !editing) return;
+    const el = textareaRef.current;
+    if (!el) return;
+    el.focus();
+    const len = el.value.length;
+    el.setSelectionRange(len, len);
+  }, [replyingTo, editing]);
 
   const attachments = att.readyDtos();
   const canSend = editing
@@ -66,6 +81,30 @@ export function MessageComposer({
     setDraft(v);
     if (!editing) saveDraft(threadId, v);
     emitTyping(v.trim().length > 0);
+  }
+
+  // Paste an image/file straight from the clipboard (e.g. a screenshot or a
+  // copied photo) → attach it. Skipped while editing (an edit can't carry new
+  // attachments). Files flow through the same processing/upload pipeline as the
+  // picker, so pasted images get compressed + a blurhash too.
+  function onPaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    if (editing) return;
+    const dt = e.clipboardData;
+    if (!dt) return;
+    const files: File[] = [];
+    for (const item of Array.from(dt.items)) {
+      if (item.kind === "file") {
+        const f = item.getAsFile();
+        if (f) files.push(f);
+      }
+    }
+    if (files.length === 0 && dt.files?.length) {
+      files.push(...Array.from(dt.files));
+    }
+    if (files.length) {
+      e.preventDefault();
+      att.addFiles(files);
+    }
   }
 
   function handleSend() {
@@ -124,6 +163,7 @@ export function MessageComposer({
           ref={textareaRef}
           value={draft}
           onChange={(e) => onChange(e.target.value)}
+          onPaste={onPaste}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
@@ -132,7 +172,7 @@ export function MessageComposer({
           }}
           rows={1}
           placeholder={isEmail ? "Reply…" : "Message"}
-          className="max-h-[140px] min-h-[42px] flex-1 resize-none overflow-y-auto rounded-3xl border border-line-strong bg-surface-2 px-4 py-2.5 text-body leading-snug text-ink-strong outline-none transition-colors placeholder:text-faint focus:border-muted"
+          className="max-h-[140px] min-h-[42px] flex-1 resize-none overflow-y-hidden [scrollbar-width:thin] rounded-3xl border border-line-strong bg-surface-2 px-4 py-2.5 text-body leading-snug text-ink-strong outline-none transition-colors placeholder:text-faint focus:border-muted"
         />
         {editing || canSend || draft.trim() ? (
           <button

@@ -314,6 +314,26 @@ export function Composer({
             setBody(e.target.value);
             saveDraft(draftKey, e.target.value);
           }}
+          onPaste={(e) => {
+            // Attach images/files pasted from the clipboard (same pipeline as
+            // the picker: compression + blurhash).
+            const dt = e.clipboardData;
+            if (!dt) return;
+            const files: File[] = [];
+            for (const item of Array.from(dt.items)) {
+              if (item.kind === "file") {
+                const f = item.getAsFile();
+                if (f) files.push(f);
+              }
+            }
+            if (files.length === 0 && dt.files?.length) {
+              files.push(...Array.from(dt.files));
+            }
+            if (files.length) {
+              e.preventDefault();
+              att.addFiles(files);
+            }
+          }}
           placeholder={isEmail ? "Write your email…" : "Write a message…"}
           className="min-h-[220px] flex-1 resize-none bg-transparent px-6 py-4 text-body leading-relaxed text-ink-strong outline-none placeholder:text-faint"
         />

@@ -136,14 +136,18 @@ export function mapMessage(m: BackendMessage): MailMessage {
     isDeleted: Boolean(m.isDeleted),
     attachments: (m.attachments ?? []).map((a, i) => {
       const title = a.title || "attachment";
+      const voice = isVoice(a);
+      const isImage = (a.type || "").toLowerCase().startsWith("image");
       return {
         id: a.id || title || `att-${i}`,
         filename: title,
         url: a.url,
         type: a.type,
         sizeLabel: humanSize(a.size),
+        // `placeholder` is dual-purpose: blurhash for images, duration for voice.
+        placeholder: isImage ? a.placeholder ?? undefined : undefined,
         durationSec:
-          isVoice(a) && a.placeholder ? parseInt(a.placeholder, 10) : undefined,
+          voice && a.placeholder ? parseInt(a.placeholder, 10) : undefined,
         orientation: a.orientation ?? undefined,
       };
     }),

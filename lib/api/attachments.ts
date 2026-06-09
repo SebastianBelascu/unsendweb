@@ -2,6 +2,10 @@
  * Shape the backend expects inside SendMessageDto.attachments (AttachmentDto).
  * `placeholder` is dual-purpose: blurhash for images, OR the duration in
  * seconds (as a string) for voice notes — matching the native client.
+ * `id` is REQUIRED in practice: the native image cache keys on it
+ * (`${id}-image`), so omitting it makes every web-sent photo collide on
+ * `undefined-image` and not render on phones. `orientation` ("portrait" |
+ * "landscape" | "box") drives the native/web grid aspect ratio.
  */
 export interface AttachmentDto {
   id?: string;
@@ -11,6 +15,7 @@ export interface AttachmentDto {
   size: number;
   thumbnail?: string;
   placeholder?: string;
+  orientation?: string;
 }
 
 /**
@@ -54,20 +59,37 @@ export function uploadViaBff(
 }
 
 /**
- * Upload one file and return the AttachmentDto to embed in SendMessageDto.
+ * Upload already-prepared bytes and return the AttachmentDto to embed in
+ * SendMessageDto. The caller supplies the metadata (id, filename, type,
+ * blurhash/duration placeholder, orientation) — image bytes are resized +
+ * re-encoded upstream in the composer (lib/media/image.ts) before reaching here.
  */
 export async function uploadAttachment(
-  file: File,
-  opts: { placeholder?: string; onProgress?: (pct: number) => void } = {},
+  blob: Blob,
+  meta: {
+    id: string;
+    filename: string;
+    type: string;
+    size: number;
+    placeholder?: string;
+    orientation?: string;
+    onProgress?: (pct: number) => void;
+  },
 ): Promise<AttachmentDto> {
-  const name = file.name || "file";
-  const type = file.type || "application/octet-stream";
-  const { url } = await uploadViaBff(file, "attachment", name, type, opts.onProgress);
+  const { url } = await uploadViaBff(
+    blob,
+    "attachment",
+    meta.filename,
+    meta.type,
+    meta.onProgress,
+  );
   return {
+    id: meta.id,
     url,
-    title: name,
-    type,
-    size: file.size,
-    placeholder: opts.placeholder,
+    title: meta.filename,
+    type: meta.type,
+    size: meta.size,
+    placeholder: meta.placeholder,
+    orientation: meta.orientation,
   };
 }

@@ -60,6 +60,9 @@ export interface MailAttachment {
   sizeLabel?: string;
   /** Voice-note duration in seconds (from the backend `placeholder`). */
   durationSec?: number;
+  /** Image blurhash (from the backend `placeholder`) for progressive loading. */
+  placeholder?: string;
+  /** "portrait" | "landscape" | "box" — drives the album grid aspect ratio. */
   orientation?: string;
 }
 

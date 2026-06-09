@@ -29,6 +29,8 @@ import {
 } from "lucide-react";
 import { Avatar } from "./Avatar";
 import { UserAvatar } from "./UserAvatar";
+import { AttachmentGrid } from "./AttachmentGrid";
+import { SwipeToReply } from "./SwipeToReply";
 import { CallButtons } from "@/components/calls/CallButtons";
 import { EmailBody } from "./EmailBody";
 import { MessageComposer } from "./MessageComposer";
@@ -163,20 +165,7 @@ const Attachments = memo(function Attachments({
   }
   return (
     <div className="flex flex-col gap-1.5" onClick={(e) => e.stopPropagation()}>
-      {images.length > 0 && (
-        <div className={cn("grid gap-1", images.length === 1 ? "grid-cols-1" : "grid-cols-2")}>
-          {images.map((a) => (
-            <a key={a.id} href={a.url} target="_blank" rel="noopener noreferrer">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={a.url}
-                alt={a.filename}
-                className="max-h-[280px] w-full rounded-lg object-cover"
-              />
-            </a>
-          ))}
-        </div>
-      )}
+      {images.length > 0 && <AttachmentGrid images={images} />}
       {rest.map((a) => {
         const k = fileKind(a);
         if (k === "video")
@@ -557,6 +546,11 @@ function Bubble({
         selected && "bg-accent/10",
       )}
     >
+      <SwipeToReply
+        enabled={actionable && !deleted && !selectMode}
+        isOwn={isOwn}
+        onReply={() => onAction("reply")}
+      >
       <div
         className={cn(
           "flex items-end gap-2",
@@ -752,6 +746,7 @@ function Bubble({
         </div>
         </div>
       </div>
+      </SwipeToReply>
 
       {/* Meta (reactions / See original / time) BELOW the bubble, aligned under
           it — so the avatar sits next to the bubble, not next to "See original". */}
@@ -1384,7 +1379,7 @@ export function ConversationView({
       <div
         ref={scrollRef}
         onScroll={onScroll}
-        className="relative min-h-0 flex-1 overflow-y-auto"
+        className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden"
       >
        <div
         ref={contentRef}

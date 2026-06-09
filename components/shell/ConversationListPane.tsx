@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { ThreadsList } from "@/components/mail/ThreadsList";
 import { CallsList } from "@/components/calls/CallsList";
+import { ContactsPane } from "@/components/contacts/ContactsPane";
 import { SyncStatus } from "@/components/mail/SyncStatus";
 import { SearchField } from "@/components/ui/SearchField";
 import { IconButton } from "@/components/ui/IconButton";
@@ -156,6 +157,11 @@ export function ConversationListPane({
         <CallsList />
       </div>
     );
+  }
+
+  // The contacts section shows the address book (no threads, no selection).
+  if (section === "contacts") {
+    return <ContactsPane />;
   }
 
   return (

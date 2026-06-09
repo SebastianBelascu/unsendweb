@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Inbox, Mail, MessageCircle, Phone, Settings } from "lucide-react";
+import { Inbox, Mail, MessageCircle, Phone, Settings, Users } from "lucide-react";
 import { NAV_SECTIONS, type NavSection } from "@/lib/inbox-view";
 import { useSession } from "@/lib/api/account";
 import { useRealtime } from "@/lib/realtime/store";
@@ -15,6 +15,7 @@ const ICONS: Record<NavSection, typeof MessageCircle> = {
   chats: MessageCircle,
   emails: Mail,
   calls: Phone,
+  contacts: Users,
 };
 
 /**
