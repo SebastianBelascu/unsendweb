@@ -217,13 +217,23 @@ export function useSendMessage() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: sendMessage,
+    // Bump the thread row the moment you hit send (WhatsApp-instant): preview +
+    // order update optimistically, and markBumped shields them from any refetch
+    // landing before the backend commits updatedAt.
+    onMutate: (vars) => {
+      bumpThread(qc, {
+        threadId: vars.threadId,
+        topicId: vars.topicId,
+        preview: vars.text,
+        outbound: true,
+      });
+    },
     onSuccess: (data, vars) => {
       const r = (data ?? {}) as { threadId?: string; topicId?: string };
       const threadId = r.threadId ?? vars.threadId;
       if (threadId) qc.invalidateQueries({ queryKey: ["messages", threadId] });
-      // Bump our own thread to the top instantly — the list endpoint reports a
-      // stale order for a few seconds after a send (it commits updatedAt after
-      // responding). Only refetch the lists for a brand-new conversation.
+      // Re-bump with the server's ids (covers sends where vars had no thread id
+      // yet). Only refetch the lists for a brand-new conversation (row absent).
       const found = bumpThread(qc, {
         threadId,
         topicId: r.topicId ?? vars.topicId,

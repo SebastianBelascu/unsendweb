@@ -100,13 +100,20 @@ export function ConversationListPane({
       .sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt));
     // Pinned row only on the normal bucket (chip "all"); honor the rail type.
     if (filter !== "all") return base;
-    const pins = (pinned ?? []).filter(
-      (t) =>
-        !t.isDeleted &&
-        !t.isSpam &&
-        !t.isPromotional &&
-        (!typePred || typePred(t)),
-    );
+    // Pins sort by pinDate (when you pinned), NOT last-message time — native
+    // `Thread.sortedDate`. So a fresh message in a pinned chat updates its
+    // preview but never reshuffles the pinned group. Most-recently-pinned first.
+    const pinKey = (t: (typeof items)[number]) =>
+      +new Date(t.pinDate ?? t.updatedAt);
+    const pins = (pinned ?? [])
+      .filter(
+        (t) =>
+          !t.isDeleted &&
+          !t.isSpam &&
+          !t.isPromotional &&
+          (!typePred || typePred(t)),
+      )
+      .sort((a, b) => pinKey(b) - pinKey(a));
     if (!pins.length) return base;
     const pinnedIds = new Set(pins.map((t) => t.id));
     return [...pins, ...base.filter((t) => !pinnedIds.has(t.id))];

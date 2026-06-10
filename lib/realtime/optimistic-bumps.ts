@@ -30,3 +30,27 @@ export function recentlyBumped(id?: string): boolean {
   }
   return true;
 }
+
+/*
+  Same idea for SEEN: the backend commits the `seen` write with a lag, so a list
+  refetch right after opening a conversation returns seen=false and re-bolds the
+  row (a visible flash). Track locally-marked-seen threads and force unread=false
+  on refetched rows within the window — by then the server has caught up.
+*/
+const seenAt = new Map<string, number>();
+
+export function markSeenLocally(...ids: (string | undefined)[]): void {
+  const now = Date.now();
+  for (const id of ids) if (id) seenAt.set(id, now);
+}
+
+export function recentlySeen(id?: string): boolean {
+  if (!id) return false;
+  const t = seenAt.get(id);
+  if (t == null) return false;
+  if (Date.now() - t >= WINDOW_MS) {
+    seenAt.delete(id);
+    return false;
+  }
+  return true;
+}

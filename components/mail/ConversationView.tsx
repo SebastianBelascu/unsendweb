@@ -54,6 +54,10 @@ import {
 } from "./attachments";
 import { cn } from "@/lib/utils";
 import { isOwnMessage, localPart, MAIL_DOMAIN } from "@/lib/identity";
+import {
+  clearActiveThread,
+  setActiveThread,
+} from "@/lib/realtime/active-thread";
 import { useSession } from "@/lib/api/account";
 import {
   useEmitTyping,
@@ -1130,6 +1134,13 @@ export function ConversationView({
     return () => ro.disconnect();
   }, []);
 
+  // Register as the ACTIVE conversation (WhatsApp semantics): the socket layer
+  // suppresses unread bolding + acks seen for messages arriving while open.
+  useEffect(() => {
+    setActiveThread({ threadId: id, topicId });
+    return () => clearActiveThread({ threadId: id, topicId });
+  }, [id, topicId]);
+
   useEffect(() => {
     if (!id) return;
     // Clear the unread/bold styling INSTANTLY (the server `seen` write lags, so
@@ -1137,6 +1148,31 @@ export function ConversationView({
     markThreadReadInCache(qc, { threadId: id, topicId });
     markThreadSeen(id).catch(() => {});
   }, [id, topicId, qc]);
+
+  // Inbound messages landing while the thread is open (poll or socket) → keep
+  // the row read + converge the server. The socket path also acks, throttled —
+  // this catches the polling path and is cheap/idempotent.
+  const lastInboundId = useMemo(() => {
+    for (let i = fetched.length - 1; i >= 0; i--) {
+      const m = fetched[i];
+      if (!m.outbound && !m.isHidden) return m.id;
+    }
+    return null;
+  }, [fetched]);
+  const ackedInboundRef = useRef<string | null>(null);
+  useEffect(() => {
+    ackedInboundRef.current = null;
+  }, [id]);
+  useEffect(() => {
+    if (!id || !lastInboundId) return;
+    if (ackedInboundRef.current === lastInboundId) return;
+    const isFirst = ackedInboundRef.current === null;
+    ackedInboundRef.current = lastInboundId;
+    if (isFirst) return; // the open-thread effect above already handled mount
+    if (document.visibilityState !== "visible") return;
+    markThreadReadInCache(qc, { threadId: id, topicId });
+    markThreadSeen(id).catch(() => {});
+  }, [lastInboundId, id, topicId, qc]);
 
   // Merge optimistic sends with server data, dropping any optimistic message
   // the server has echoed back — matched EXACTLY by refId (idempotency key) so
@@ -1669,7 +1705,9 @@ export function ConversationView({
                 {title}
               </div>
               <div className="truncate text-caption text-faint">
-                {online ? (
+                {typingNames.length ? (
+                  <span className="text-email">typing…</span>
+                ) : online ? (
                   <span className="text-email">online</span>
                 ) : lastSeen ? (
                   `last seen ${lastSeenLabel(lastSeen)}`
@@ -1734,15 +1772,21 @@ export function ConversationView({
                     {headerTitle}
                   </div>
                   {isGroup ? (
-                    <button
-                      type="button"
-                      onClick={() => setGroupPanelOpen(true)}
-                      className="truncate text-left text-caption text-faint hover:text-ink"
-                    >
-                      {groupMembers.length
-                        ? `${groupMembers.length} members · manage`
-                        : "Group chat"}
-                    </button>
+                    typingNames.length ? (
+                      <div className="truncate text-caption text-email">
+                        {typingNames[0]} is typing…
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setGroupPanelOpen(true)}
+                        className="truncate text-left text-caption text-faint hover:text-ink"
+                      >
+                        {groupMembers.length
+                          ? `${groupMembers.length} members · manage`
+                          : "Group chat"}
+                      </button>
+                    )
                   ) : null}
                 </>
               )}

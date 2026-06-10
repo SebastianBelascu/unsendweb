@@ -11,6 +11,7 @@ import {
 import { RecipientInput, type Recipient } from "./RecipientInput";
 import { MentionPicker } from "./MentionPicker";
 import { LinkPreviewBar } from "./LinkPreview";
+import { GifPicker } from "./GifPicker";
 import {
   activeMentionToken,
   filterMentionParticipants,
@@ -87,6 +88,7 @@ export function MessageComposer({
 }) {
   const [draft, setDraft] = useState("");
   const [infoOpen, setInfoOpen] = useState(false);
+  const [gifOpen, setGifOpen] = useState(false);
   // Recipient/subject overrides — null means "track the thread default".
   const [toOverride, setToOverride] = useState<Recipient[] | null>(null);
   const [ccOverride, setCcOverride] = useState<Recipient[] | null>(null);
@@ -402,6 +404,17 @@ export function MessageComposer({
             )}
           />
         </button>
+        {!editing && (
+          <button
+            type="button"
+            onClick={() => setGifOpen(true)}
+            aria-label="Send a GIF"
+            title="GIF"
+            className="flex h-[42px] w-[34px] shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-faint transition-colors hover:bg-surface-2 hover:text-ink"
+          >
+            GIF
+          </button>
+        )}
         <textarea
           ref={textareaRef}
           value={draft}
@@ -481,6 +494,13 @@ export function MessageComposer({
         />
         <input ref={filesRef} type="file" multiple hidden onChange={pickFiles} />
       </footer>
+
+      {gifOpen && (
+        <GifPicker
+          onPick={(file) => att.addFiles([file])}
+          onClose={() => setGifOpen(false)}
+        />
+      )}
     </div>
   );
 }

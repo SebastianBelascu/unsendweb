@@ -7,7 +7,7 @@ import {
 } from "@tanstack/react-query";
 import { apiGet, apiSend } from "./http";
 import { mapParticipant, mapThread } from "./mappers";
-import { recentlyBumped } from "../realtime/optimistic-bumps";
+import { recentlyBumped, recentlySeen } from "../realtime/optimistic-bumps";
 import type { BackendThread, ThreadsResponse } from "./backend-types";
 import type { MailFilter, ThreadListItem, ThreadParticipant } from "../types";
 
@@ -39,11 +39,16 @@ export interface ThreadsPage {
   (see optimistic-bumps), avoiding any client/server timestamp comparison.
 */
 function keepRecentlyBumped(cached: ThreadListItem[] | undefined) {
-  if (!cached?.length) return (t: ThreadListItem) => t;
-  const byId = new Map(cached.map((t) => [t.id, t]));
+  const byId = new Map((cached ?? []).map((t) => [t.id, t]));
   return (t: ThreadListItem): ThreadListItem => {
     const old = byId.get(t.id);
-    return old && (recentlyBumped(t.id) || recentlyBumped(t.topicId)) ? old : t;
+    const kept =
+      old && (recentlyBumped(t.id) || recentlyBumped(t.topicId)) ? old : t;
+    // Seen-protection: we just marked this thread read locally; the server's
+    // seen write lags, so a refetch in that window would re-bold it (flash).
+    if (kept.unread && (recentlySeen(t.id) || recentlySeen(t.topicId)))
+      return { ...kept, unread: false };
+    return kept;
   };
 }
 

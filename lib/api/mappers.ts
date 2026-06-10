@@ -98,6 +98,7 @@ export function mapThread(t: BackendThread): ThreadListItem {
     // contribute to the unread badge.
     unread: Boolean(lm && lm.seen !== true && !lm.outbound && !t.isSilent),
     isPinned: t.isPinned,
+    pinDate: t.pinDate || undefined,
     isBookmarked: t.isBookmarked,
     isSilent: t.isSilent,
     isSpam: t.isSpam,

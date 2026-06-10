@@ -39,6 +39,8 @@ export interface ThreadListItem {
   /** Group chat name, kept separate so `participants` holds the real members. */
   groupName?: string;
   isPinned?: boolean;
+  /** ISO timestamp the thread was pinned — pins sort by this, not last activity. */
+  pinDate?: string;
   isBookmarked?: boolean;
   isSilent?: boolean;
   isSpam?: boolean;

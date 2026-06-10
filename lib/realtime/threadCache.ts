@@ -3,7 +3,8 @@ import type { ThreadsPage } from "@/lib/api/threads";
 import type { ThreadListItem } from "@/lib/types";
 import { mapThread } from "@/lib/api/mappers";
 import type { BackendThread } from "@/lib/api/backend-types";
-import { markBumped } from "./optimistic-bumps";
+import { markBumped, markSeenLocally } from "./optimistic-bumps";
+import { isActiveThread } from "./active-thread";
 
 /*
   Optimistic conversation-list updates. The backend emits the socket `create`
@@ -47,7 +48,12 @@ export function bumpThread(
     ...t,
     preview: preview || t.preview,
     updatedAt,
-    unread: outbound ? t.unread : true,
+    // WhatsApp semantics: the OPEN conversation never bolds — you're reading it.
+    unread: isActiveThread({ threadId: t.id, topicId: t.topicId })
+      ? false
+      : outbound
+        ? t.unread
+        : true,
   });
 
   let found = false;
@@ -158,6 +164,9 @@ export function markThreadReadInCache(
 ): void {
   const { threadId, topicId } = ids;
   if (!threadId && !topicId) return;
+  // Shield the un-bold from refetches that land before the server commits the
+  // seen write (they'd return seen=false and re-bold the row for a flash).
+  markSeenLocally(threadId, topicId);
   const matches = (t: ThreadListItem | undefined) =>
     !!t &&
     ((!!threadId && t.id === threadId) || (!!topicId && t.topicId === topicId));

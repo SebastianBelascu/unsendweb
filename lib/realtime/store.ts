@@ -67,7 +67,9 @@ export const useRealtime = create<RealtimeState>((set) => ({
         ...s.typing,
         [channel]: {
           ...(s.typing[channel] ?? {}),
-          [userId]: { name, exp: Date.now() + 4000 },
+          // 6s TTL — long enough to survive the row→conversation navigation,
+          // so an in-progress "typing…" carries into the just-opened thread.
+          [userId]: { name, exp: Date.now() + 6000 },
         },
       },
     })),

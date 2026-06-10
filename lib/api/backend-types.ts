@@ -95,6 +95,8 @@ export interface BackendThread {
   isDeleted?: boolean;
   isChat?: boolean;
   isPinned?: boolean;
+  /** ISO timestamp the thread was pinned — pins sort by this, NOT last message. */
+  pinDate?: string | null;
   isSilent?: boolean;
   isEmail?: boolean;
   isGroup?: boolean;

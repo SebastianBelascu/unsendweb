@@ -5,6 +5,9 @@ import { useEffect } from "react";
 import { io, type Socket } from "socket.io-client";
 import { useRealtime } from "@/lib/realtime/store";
 import { applyThreadEvent, bumpThread } from "@/lib/realtime/threadCache";
+import { isActiveThread } from "@/lib/realtime/active-thread";
+import { markSeenLocally } from "@/lib/realtime/optimistic-bumps";
+import { markThreadSeen } from "@/lib/api/messages";
 import { mapMessage } from "@/lib/api/mappers";
 import type { BackendMessage, BackendThread } from "@/lib/api/backend-types";
 import type { MailMessage } from "@/lib/types";
@@ -87,6 +90,24 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       msg.reactionText ||
       msg.text ||
       (msg.attachments?.length ? "📎 Attachment" : "");
+
+    // Inbound message for the OPEN conversation while the tab is visible →
+    // you're reading it, so ack seen immediately (WhatsApp). Throttled per
+    // thread so a burst of messages produces one PATCH.
+    const lastSeenAck = new Map<string, number>();
+    const ackSeenIfReading = (msg: IncomingMessage) => {
+      if (msg.outbound) return;
+      if (!isActiveThread({ threadId: msg.threadId, topicId: msg.topicId }))
+        return;
+      if (document.visibilityState !== "visible") return;
+      markSeenLocally(msg.threadId, msg.topicId);
+      const threadId = msg.threadId;
+      if (!threadId) return;
+      const now = Date.now();
+      if (now - (lastSeenAck.get(threadId) ?? 0) < 3000) return;
+      lastSeenAck.set(threadId, now);
+      markThreadSeen(threadId).catch(() => {});
+    };
 
     // Instant path for the OPEN thread: write the incoming message straight into
     // its cache (zero network) so it appears immediately. The LIST is handled by
@@ -215,6 +236,10 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
           // order / unread) and stop; it is NOT a message for the open thread.
           if (isThreadEvent(msg)) {
             applyThreadEvent(qc, msg as unknown as BackendThread);
+            ackSeenIfReading({
+              ...msg,
+              outbound: Boolean(msg.lastMessage?.outbound),
+            });
             return;
           }
           // Reaction reply-messages (isHidden) never enter the thread; they only
@@ -223,6 +248,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
           // open thread to land the chip on its bubble.
           if (msg.isHidden) refreshOther();
           else applyIncoming(msg);
+          ackSeenIfReading(msg);
           const found = bumpThread(qc, {
             threadId: msg.threadId,
             topicId: msg.topicId,
