@@ -78,15 +78,21 @@ export function loadDraft(key?: string): string {
   return localStorage.getItem(PREFIX + key) ?? "";
 }
 
+// Per-keystroke persistence writes localStorage only — NOT the reactive store —
+// so the inbox row never updates live while you type. The row is refreshed via
+// `flushDraftToRow` when you leave the conversation (composer unmount).
 export function saveDraft(key: string, value: string): void {
   if (typeof localStorage === "undefined") return;
-  if (value) {
-    localStorage.setItem(PREFIX + key, value);
-    useDraftStore.getState().put(key, value);
-  } else {
-    localStorage.removeItem(PREFIX + key);
-    useDraftStore.getState().drop(key);
-  }
+  if (value) localStorage.setItem(PREFIX + key, value);
+  else localStorage.removeItem(PREFIX + key);
+}
+
+/** Push the saved draft into the reactive store so the inbox row reflects it. */
+export function flushDraftToRow(key: string): void {
+  const text = loadDraft(key).trim();
+  const store = useDraftStore.getState();
+  if (text) store.put(key, text);
+  else store.drop(key);
 }
 
 export function clearDraft(key?: string): void {

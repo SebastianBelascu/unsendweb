@@ -22,6 +22,7 @@ import { firstUrl } from "@/lib/api/link-preview";
 import {
   clearDraft,
   clearDraftMeta,
+  flushDraftToRow,
   loadDraft,
   loadDraftMeta,
   saveDraft,
@@ -144,6 +145,12 @@ export function MessageComposer({
       bcc: bccOverride ?? undefined,
     });
   }, [threadId, editing, subjOverride, ccOverride, bccOverride]);
+
+  // Surface the draft in the inbox row only on LEAVE (composer unmount on thread
+  // switch), never live while typing — saveDraft keeps localStorage current.
+  useEffect(() => {
+    return () => flushDraftToRow(threadId);
+  }, [threadId]);
 
   // Auto-grow the textarea to fit its content up to a max height.
   useEffect(() => {
