@@ -5,6 +5,7 @@ import { DeviceRegistrar } from "@/components/DeviceRegistrar";
 import { InboxShell } from "@/components/shell/InboxShell";
 import { ComposeModal } from "@/components/mail/ComposeModal";
 import { CallHost } from "@/components/calls/CallHost";
+import { Toaster } from "@/components/ui/Toaster";
 import { SocketProvider } from "@/lib/socket/SocketProvider";
 import { RT_COOKIE } from "@/lib/server/backend";
 
@@ -25,6 +26,7 @@ export default async function AppLayout({
       </Suspense>
       <ComposeModal />
       <CallHost />
+      <Toaster />
     </SocketProvider>
   );
 }

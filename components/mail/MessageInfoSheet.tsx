@@ -91,7 +91,7 @@ export function MessageInfoSheet({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md rounded-t-2xl border border-line-strong bg-surface-2 shadow-xl sm:rounded-2xl"
+        className="slide-up w-full max-w-md rounded-t-2xl border border-line-strong bg-surface-2 shadow-xl sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-line px-4 py-3">

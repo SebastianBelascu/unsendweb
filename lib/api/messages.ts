@@ -19,14 +19,78 @@ export async function fetchThreadMessages(
   return list.sort((a, b) => +new Date(a.date) - +new Date(b.date));
 }
 
+/**
+ * Older messages strictly before `beforeMessageId` (cursor back-scroll). Returns
+ * them oldest-first plus whether more history exists. Used to lazy-load history
+ * on scroll-up without disturbing the flat ["messages", threadId] cache.
+ */
+export async function fetchOlderMessages(
+  threadId: string,
+  beforeMessageId: string,
+  size = 30,
+): Promise<{ messages: MailMessage[]; hasMore: boolean }> {
+  const res = await apiGet<{ data?: unknown; hasMore?: boolean }>(
+    `/messages/thread/${threadId}/before/${beforeMessageId}/size/${size}`,
+  );
+  const rows = Array.isArray(res?.data)
+    ? (res.data as Parameters<typeof mapMessage>[0][])
+    : [];
+  const messages = rows
+    .map(mapMessage)
+    .sort((a, b) => +new Date(a.date) - +new Date(b.date));
+  return { messages, hasMore: Boolean(res?.hasMore) };
+}
+
 export function useThreadMessages(threadId: string) {
+  const qc = useQueryClient();
   return useQuery({
     queryKey: ["messages", threadId],
-    queryFn: () => fetchThreadMessages(threadId),
+    queryFn: async () => {
+      const fresh = await fetchThreadMessages(threadId);
+      const cached = qc.getQueryData<MailMessage[]>(["messages", threadId]);
+      if (!cached?.length) return fresh;
+      // Merge so back-scrolled older history (and socket-applied rows) survive
+      // the poll; the fresh newest-page wins on overlap (receipts/edits).
+      const map = new Map(cached.map((m) => [m.id, m]));
+      for (const m of fresh) map.set(m.id, m);
+      return [...map.values()].sort(
+        (a, b) => +new Date(a.date) - +new Date(b.date),
+      );
+    },
     enabled: Boolean(threadId),
     // Polling stand-in for realtime (the socket gateway can't be reached from a
     // browser without a backend change — see context/03 + sockets.service.ts).
     refetchInterval: 15_000,
+  });
+}
+
+/** One row in the mentions inbox: a message you were @mentioned in + its thread. */
+export interface MentionInboxItem {
+  message: MailMessage;
+  threadId?: string;
+}
+
+/**
+ * Mentions inbox — messages where the caller is targeted by a user-type mention,
+ * newest first (GET /messages/mentions). Returns a bare array of messages; the
+ * thread id rides along so the UI can deep-link into the conversation. User-type
+ * mentions are validated against chat participants, so these are always chats.
+ */
+export function useMentionsInbox(enabled = true) {
+  return useQuery({
+    queryKey: ["mentions"],
+    enabled,
+    staleTime: 30_000,
+    queryFn: async () => {
+      const res = await apiGet<unknown>("/messages/mentions?limit=50");
+      const rows = Array.isArray(res)
+        ? (res as Parameters<typeof mapMessage>[0][])
+        : [];
+      return rows.map<MentionInboxItem>((r) => ({
+        message: mapMessage(r),
+        threadId: r.threadId,
+      }));
+    },
   });
 }
 
@@ -49,6 +113,8 @@ export interface SendMessageInput {
   threadId?: string;
   replyTo?: string;
   attachments?: AttachmentDto[];
+  mentions?: import("../mentions").MentionDto[];
+  withUrlPreview?: boolean;
 }
 
 export async function sendMessage(input: SendMessageInput): Promise<unknown> {

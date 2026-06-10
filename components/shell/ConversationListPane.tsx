@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  AtSign,
   CheckCheck,
   ListChecks,
   Loader2,
@@ -15,6 +16,8 @@ import {
 import { ThreadsList } from "@/components/mail/ThreadsList";
 import { CallsList } from "@/components/calls/CallsList";
 import { ContactsPane } from "@/components/contacts/ContactsPane";
+import { MentionsSheet } from "@/components/mail/MentionsSheet";
+import { SearchPeople } from "./SearchPeople";
 import { SyncStatus } from "@/components/mail/SyncStatus";
 import { SearchField } from "@/components/ui/SearchField";
 import { IconButton } from "@/components/ui/IconButton";
@@ -31,6 +34,7 @@ import {
   INBOX_FILTERS,
   filterBackendFilter,
   filterPredicate,
+  promoVisible,
   sectionLabel,
   sectionTypePredicate,
   type InboxFilter,
@@ -56,6 +60,7 @@ export function ConversationListPane({
 }) {
   const [query, setQuery] = useState("");
   const [selecting, setSelecting] = useState(false);
+  const [mentionsOpen, setMentionsOpen] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const { data: me } = useSession();
@@ -81,17 +86,23 @@ export function ConversationListPane({
     const typePred = sectionTypePredicate(section); // chats vs emails vs all
     const bucketPred = filterPredicate(filter); // unread / groups
     const keep = (t: (typeof items)[number]) =>
-      (!typePred || typePred(t)) && (!bucketPred || bucketPred(t));
+      (!typePred || typePred(t)) &&
+      (!bucketPred || bucketPred(t)) &&
+      promoVisible(t, filter, backendFilter); // promo only under "Promotions"
     const base = items.filter(keep);
     // Pinned row only on the normal bucket (chip "all"); honor the rail type.
     if (filter !== "all") return base;
     const pins = (pinned ?? []).filter(
-      (t) => !t.isDeleted && !t.isSpam && (!typePred || typePred(t)),
+      (t) =>
+        !t.isDeleted &&
+        !t.isSpam &&
+        !t.isPromotional &&
+        (!typePred || typePred(t)),
     );
     if (!pins.length) return base;
     const pinnedIds = new Set(pins.map((t) => t.id));
     return [...pins, ...base.filter((t) => !pinnedIds.has(t.id))];
-  }, [data, section, filter, pinned]);
+  }, [data, section, filter, pinned, backendFilter]);
 
   const threads = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -246,6 +257,14 @@ export function ConversationListPane({
             <SyncStatus />
             <div className="ml-auto flex items-center gap-1">
               <IconButton
+                label="Mentions"
+                variant="surface"
+                size={38}
+                onClick={() => setMentionsOpen(true)}
+              >
+                <AtSign className="h-4 w-4" />
+              </IconButton>
+              <IconButton
                 label="Select"
                 variant="surface"
                 size={38}
@@ -283,8 +302,16 @@ export function ConversationListPane({
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {isLoading ? (
-          <div className="flex items-center justify-center p-10 text-faint">
-            <Loader2 className="h-5 w-5 animate-spin" />
+          <div className="px-4 py-2">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-3 py-2.5">
+                <div className="h-11 w-11 shrink-0 animate-pulse rounded-full bg-surface-2" />
+                <div className="min-w-0 flex-1 space-y-2">
+                  <div className="h-3 w-1/3 animate-pulse rounded bg-surface-2" />
+                  <div className="h-3 w-2/3 animate-pulse rounded bg-surface-2" />
+                </div>
+              </div>
+            ))}
           </div>
         ) : isError ? (
           <div className="flex flex-col items-center justify-center gap-3 p-10 text-center text-subhead text-muted">
@@ -299,6 +326,9 @@ export function ConversationListPane({
           </div>
         ) : (
           <>
+            {query.trim() && (
+              <SearchPeople query={query} selfUsername={me?.username} />
+            )}
             <ThreadsList
               threads={threads}
               emptyLabel={`No ${title.toLowerCase()} conversations`}
@@ -318,6 +348,8 @@ export function ConversationListPane({
           </>
         )}
       </div>
+
+      {mentionsOpen && <MentionsSheet onClose={() => setMentionsOpen(false)} />}
     </div>
   );
 }

@@ -9,7 +9,24 @@ import {
   type ComposerAttachments,
 } from "./attachments";
 import { RecipientInput, type Recipient } from "./RecipientInput";
-import { clearDraft, loadDraft, saveDraft } from "@/lib/drafts";
+import { MentionPicker } from "./MentionPicker";
+import { LinkPreviewBar } from "./LinkPreview";
+import {
+  activeMentionToken,
+  filterMentionParticipants,
+  insertMention,
+  showEveryoneRow,
+  type MentionParticipant,
+} from "@/lib/mentions";
+import { firstUrl } from "@/lib/api/link-preview";
+import {
+  clearDraft,
+  clearDraftMeta,
+  loadDraft,
+  loadDraftMeta,
+  saveDraft,
+  saveDraftMeta,
+} from "@/lib/drafts";
 import { cn } from "@/lib/utils";
 import type { MailMessage } from "@/lib/types";
 
@@ -39,6 +56,8 @@ export function MessageComposer({
   initialCc = [],
   initialBcc = [],
   initialSubject = "",
+  mentionParticipants = [],
+  supportsEveryone = false,
   onSubmit,
   onCancelEdit,
   onCancelReply,
@@ -47,13 +66,19 @@ export function MessageComposer({
   threadId: string;
   isEmail: boolean;
   att: ComposerAttachments;
-  editing: { id: string; text: string } | null;
+  editing: { id: string; text: string; date?: string } | null;
   replyingTo: MailMessage | null;
   initialTo: Recipient[];
   initialCc?: Recipient[];
   initialBcc?: Recipient[];
   initialSubject?: string;
-  onSubmit: (text: string, recipients?: ComposerRecipients) => void;
+  mentionParticipants?: MentionParticipant[];
+  supportsEveryone?: boolean;
+  onSubmit: (
+    text: string,
+    recipients?: ComposerRecipients,
+    withUrlPreview?: boolean,
+  ) => void;
   onCancelEdit: () => void;
   onCancelReply: () => void;
   emitTyping: (typing: boolean) => void;
@@ -71,6 +96,25 @@ export function MessageComposer({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const photosRef = useRef<HTMLInputElement>(null);
   const filesRef = useRef<HTMLInputElement>(null);
+  // @mention picker state (token being typed + the active row for kbd nav).
+  const [mention, setMention] = useState<{ token: string; start: number } | null>(
+    null,
+  );
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const pendingCaret = useRef<number | null>(null);
+  // URL the user dismissed the preview for (so re-typing a new URL shows again).
+  const [linkDismissed, setLinkDismissed] = useState<string | null>(null);
+  const previewUrl = editing ? null : firstUrl(draft);
+  const showLinkPreview = Boolean(previewUrl) && previewUrl !== linkDismissed;
+
+  const mentionRows = mention
+    ? filterMentionParticipants(mention.token, mentionParticipants)
+    : [];
+  const mentionEveryone = mention
+    ? showEveryoneRow(mention.token, supportsEveryone)
+    : false;
+  const mentionCount = (mentionEveryone ? 1 : 0) + mentionRows.length;
+  const mentionOpen = mention !== null && mentionCount > 0 && !editing;
 
   const toR = toOverride ?? initialTo;
   const ccR = ccOverride ?? initialCc;
@@ -78,11 +122,28 @@ export function MessageComposer({
   const subj = subjOverride ?? initialSubject;
 
   // Load the saved draft on thread change; load the message text when entering
-  // edit mode, and restore the saved draft when leaving it.
+  // edit mode, and restore the saved draft when leaving it. Also rehydrate the
+  // saved cc/bcc/subject overrides (native DraftEmailMeta).
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setDraft(editing ? editing.text : loadDraft(threadId));
+    if (!editing) {
+      const meta = loadDraftMeta(threadId);
+      setCcOverride(meta?.cc ?? null);
+      setBccOverride(meta?.bcc ?? null);
+      setSubjOverride(meta?.subject ?? null);
+    }
   }, [threadId, editing]);
+
+  // Persist the cc/bcc/subject overrides as they change (cleared on send/empty).
+  useEffect(() => {
+    if (editing) return;
+    saveDraftMeta(threadId, {
+      subject: subjOverride ?? undefined,
+      cc: ccOverride ?? undefined,
+      bcc: bccOverride ?? undefined,
+    });
+  }, [threadId, editing, subjOverride, ccOverride, bccOverride]);
 
   // Auto-grow the textarea to fit its content up to a max height.
   useEffect(() => {
@@ -103,6 +164,40 @@ export function MessageComposer({
     const len = el.value.length;
     el.setSelectionRange(len, len);
   }, [replyingTo, editing]);
+
+  // After inserting a mention we set the caret on the next paint (the textarea
+  // is controlled, so we can't move the caret synchronously).
+  useEffect(() => {
+    if (pendingCaret.current == null || !textareaRef.current) return;
+    const c = pendingCaret.current;
+    pendingCaret.current = null;
+    textareaRef.current.focus();
+    textareaRef.current.setSelectionRange(c, c);
+  }, [draft]);
+
+  function syncMention(text: string, caret: number) {
+    setMention(activeMentionToken(text, caret));
+    setMentionIndex(0);
+  }
+
+  function applyMention(handle: string) {
+    if (!mention) return;
+    const caret = textareaRef.current?.selectionStart ?? draft.length;
+    const res = insertMention(draft, mention.start, caret, handle);
+    setDraft(res.text);
+    if (!editing) saveDraft(threadId, res.text);
+    pendingCaret.current = res.caret;
+    setMention(null);
+  }
+
+  function commitActiveMention() {
+    if (mentionEveryone && mentionIndex === 0) {
+      applyMention("everyone");
+      return;
+    }
+    const p = mentionRows[mentionIndex - (mentionEveryone ? 1 : 0)];
+    if (p) applyMention(p.username);
+  }
 
   const attachments = att.readyDtos();
   const canSend = editing
@@ -151,11 +246,20 @@ export function MessageComposer({
       return;
     }
     if (!canSend) return;
-    onSubmit(text, { toList: toR, ccList: ccR, bccList: bccR, subject: subj });
+    onSubmit(
+      text,
+      { toList: toR, ccList: ccR, bccList: bccR, subject: subj },
+      showLinkPreview,
+    );
     setDraft("");
     clearDraft(threadId);
+    clearDraftMeta(threadId);
+    setCcOverride(null);
+    setBccOverride(null);
+    setSubjOverride(null);
     emitTyping(false);
     setInfoOpen(false);
+    setLinkDismissed(null);
   }
 
   const accent = isEmail ? "email" : "chat";
@@ -193,7 +297,7 @@ export function MessageComposer({
 
       {/* "+" info panel: recipients + cc/bcc + subject + attachment pills. */}
       {infoOpen && !editing && (
-        <div className="border-b border-line">
+        <div className="slide-up border-b border-line">
           <RecipientInput
             label="To"
             value={toR}
@@ -256,6 +360,24 @@ export function MessageComposer({
 
       <AttachmentTray items={att.pending} onRemove={att.remove} />
 
+      {showLinkPreview && previewUrl && (
+        <LinkPreviewBar
+          url={previewUrl}
+          onDismiss={() => setLinkDismissed(previewUrl)}
+        />
+      )}
+
+      {mentionOpen && mention && (
+        <MentionPicker
+          query={mention.token}
+          rows={mentionRows}
+          showEveryone={mentionEveryone}
+          activeIndex={mentionIndex}
+          onPick={(p) => applyMention(p.username)}
+          onPickEveryone={() => applyMention("everyone")}
+        />
+      )}
+
       <footer className="relative flex items-end gap-1 px-3 py-3">
         <button
           type="button"
@@ -273,9 +395,43 @@ export function MessageComposer({
         <textarea
           ref={textareaRef}
           value={draft}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => {
+            onChange(e.target.value);
+            syncMention(
+              e.target.value,
+              e.target.selectionStart ?? e.target.value.length,
+            );
+          }}
+          onSelect={(e) =>
+            syncMention(
+              e.currentTarget.value,
+              e.currentTarget.selectionStart ?? 0,
+            )
+          }
           onPaste={onPaste}
           onKeyDown={(e) => {
+            if (mentionOpen) {
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setMentionIndex((i) => Math.min(i + 1, mentionCount - 1));
+                return;
+              }
+              if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setMentionIndex((i) => Math.max(i - 1, 0));
+                return;
+              }
+              if (e.key === "Enter" || e.key === "Tab") {
+                e.preventDefault();
+                commitActiveMention();
+                return;
+              }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                setMention(null);
+                return;
+              }
+            }
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               handleSend();

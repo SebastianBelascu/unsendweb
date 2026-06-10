@@ -30,6 +30,14 @@ export interface BackendMessageInfo {
   createdAt?: string;
 }
 
+export interface BackendMention {
+  userId?: string | null;
+  handle?: string;
+  offset?: number;
+  length?: number;
+  type?: "user" | "everyone";
+}
+
 export interface BackendReaction {
   id: string;
   reaction: string;
@@ -59,11 +67,14 @@ export interface BackendMessage {
   isDelivered?: boolean;
   edited?: boolean;
   isDeleted?: boolean;
+  withUrlPreview?: boolean;
   replyTo?: string | null;
   reactions?: BackendReaction[];
   /** Per-user receipt rosters (drive "who saw it" in Message info). */
   readInfo?: BackendMessageInfo[];
   deliveryInfo?: BackendMessageInfo[];
+  /** Structured @mentions over `text` (offset/length spans). */
+  mentions?: BackendMention[];
   attachments?: BackendAttachment[];
   createdAt?: string;
   updatedAt?: string;

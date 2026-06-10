@@ -8,7 +8,7 @@ import { ThreadActions } from "./ThreadActions";
 import { Badge } from "@/components/ui/Badge";
 import { threadTime } from "@/lib/format";
 import { localPart, otherParticipants, threadDisplayName } from "@/lib/identity";
-import { useOnline } from "@/lib/realtime/hooks";
+import { useOnline, useTyping } from "@/lib/realtime/hooks";
 import { cn } from "@/lib/utils";
 import type { MailFilter, ThreadListItem } from "@/lib/types";
 
@@ -43,6 +43,7 @@ export function ThreadCard({
       ? localPart(others[0].address)
       : undefined;
   const online = useOnline(dmUsername);
+  const typing = useTyping(thread.topicId);
 
   const domain = others[0]?.address?.split("@")[1];
   const favicon =
@@ -144,10 +145,18 @@ export function ThreadCard({
           <span
             className={cn(
               "min-w-0 flex-1 truncate text-subhead",
-              unread ? "text-ink" : "text-faint",
+              typing.length
+                ? "font-medium text-accent"
+                : unread
+                  ? "text-ink"
+                  : "text-faint",
             )}
           >
-            {thread.preview}
+            {typing.length
+              ? isGroup && typing[0]
+                ? `${typing[0]} is typing…`
+                : "typing…"
+              : thread.preview}
           </span>
           <span className="flex shrink-0 items-center gap-1.5">
             {thread.isSilent && <BellOff className="h-3.5 w-3.5 text-yellow" />}
@@ -192,7 +201,8 @@ export function ThreadCard({
       )}
 
       {filter && !selecting && (
-        <div className="absolute right-1.5 top-1/2 -translate-y-1/2 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+        // Always reachable on touch (no hover); hover-revealed on desktop.
+        <div className="absolute right-1.5 top-1/2 -translate-y-1/2 opacity-100 transition-opacity lg:opacity-0 lg:focus-within:opacity-100 lg:group-hover:opacity-100">
           <ThreadActions thread={thread} filter={filter} />
         </div>
       )}

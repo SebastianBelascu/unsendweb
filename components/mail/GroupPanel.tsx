@@ -8,6 +8,7 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { RecipientInput, type Recipient } from "./RecipientInput";
 import { useGroupActions } from "@/lib/api/threads";
 import type { ThreadParticipant } from "@/lib/types";
+import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 
 const norm = (s?: string) => (s ?? "").toLowerCase();
@@ -48,7 +49,13 @@ export function GroupPanel({
   function commitRename() {
     const next = newName.trim();
     if (!next || next === name) return;
-    rename.mutate(next, { onSuccess: () => onRenamed?.(next) });
+    rename.mutate(next, {
+      onSuccess: () => {
+        onRenamed?.(next);
+        toast("Group renamed");
+      },
+      onError: () => toast("Couldn't rename group", "error"),
+    });
   }
 
   function commitAdd() {
@@ -56,11 +63,20 @@ export function GroupPanel({
     const seen = new Set(memberAddrs.map(norm));
     const merged = [...memberAddrs];
     for (const r of adding) if (!seen.has(norm(r.address))) merged.push(r.address);
-    setParticipants.mutate(merged, { onSuccess: () => setAdding([]) });
+    setParticipants.mutate(merged, {
+      onSuccess: () => {
+        setAdding([]);
+        toast("Added to group");
+      },
+      onError: () => toast("Couldn't add member", "error"),
+    });
   }
 
   function removeMember(address: string) {
-    setParticipants.mutate(memberAddrs.filter((a) => norm(a) !== norm(address)));
+    setParticipants.mutate(
+      memberAddrs.filter((a) => norm(a) !== norm(address)),
+      { onSuccess: () => toast("Removed from group") },
+    );
   }
 
   function doLeave() {

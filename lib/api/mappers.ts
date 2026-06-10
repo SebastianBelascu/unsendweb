@@ -133,10 +133,23 @@ export function mapMessage(m: BackendMessage): MailMessage {
       username: r.username,
       at: r.createdAt,
     })),
+    mentions: (m.mentions ?? [])
+      .filter(
+        (mn): mn is Required<Pick<typeof mn, "offset" | "length">> & typeof mn =>
+          typeof mn.offset === "number" && typeof mn.length === "number",
+      )
+      .map((mn) => ({
+        userId: mn.userId ?? null,
+        handle: mn.handle ?? "",
+        offset: mn.offset,
+        length: mn.length,
+        type: mn.type === "everyone" ? ("everyone" as const) : ("user" as const),
+      })),
     date: m.createdAt || new Date(0).toISOString(),
     html: m.hasHtml && m.html ? m.html : undefined,
     hasHtml: Boolean(m.hasHtml || m.html),
     isInfoMessage: Boolean(m.isInfoMessage),
+    isCall: Boolean(m.isCall),
     isHidden: Boolean(m.isHidden),
     text: m.text || undefined,
     outbound: Boolean(m.outbound),
@@ -144,6 +157,7 @@ export function mapMessage(m: BackendMessage): MailMessage {
     isRead: Boolean(m.isRead),
     edited: Boolean(m.edited),
     isDeleted: Boolean(m.isDeleted),
+    withUrlPreview: Boolean(m.withUrlPreview),
     attachments: (m.attachments ?? []).map((a, i) => {
       const title = a.title || "attachment";
       const voice = isVoice(a);

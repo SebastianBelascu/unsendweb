@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import {
+  ChevronDown,
   Mic,
   MicOff,
   PhoneOff,
@@ -12,6 +13,7 @@ import {
   VideoOff,
 } from "lucide-react";
 import { useCall, type RemotePeer } from "@/lib/calls/store";
+import { formatCallTime, useCallSeconds } from "@/lib/calls/duration";
 import { agora } from "@/lib/calls/AgoraService";
 import {
   endCall,
@@ -26,18 +28,10 @@ import { useMediaQuery } from "@/lib/use-media-query";
 import { cn } from "@/lib/utils";
 
 function CallTimer() {
-  const [secs, setSecs] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => setSecs((s) => s + 1), 1000);
-    return () => clearInterval(id);
-  }, []);
-  const mm = String(Math.floor(secs / 60)).padStart(2, "0");
-  const ss = String(secs % 60).padStart(2, "0");
-  return (
-    <>
-      {mm}:{ss}
-    </>
-  );
+  // Read from the store's joinedAt so the duration survives minimize/restore.
+  const joinedAt = useCall((s) => s.joinedAt);
+  const secs = useCallSeconds(joinedAt);
+  return <>{formatCallTime(secs)}</>;
 }
 
 /** How many columns to use for N tiles, adapting to viewport width. */
@@ -141,6 +135,7 @@ export function CallScreen() {
   const localVideoOn = useCall((s) => s.localVideoOn);
   const localScreenOn = useCall((s) => s.localScreenOn);
   const error = useCall((s) => s.error);
+  const setMinimized = useCall((s) => s.setMinimized);
 
   const localRef = useRef<HTMLDivElement>(null);
   const remoteRef = useRef<HTMLDivElement>(null);
@@ -210,6 +205,16 @@ export function CallScreen() {
 
   return (
     <div className="fixed inset-0 z-[70] flex flex-col bg-[#0b0b0d] text-white">
+      {/* Minimize → floating pill (native isCallMinimized). */}
+      <button
+        type="button"
+        aria-label="Minimize call"
+        title="Minimize"
+        onClick={() => setMinimized(true)}
+        className="absolute left-3 top-3 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
+      >
+        <ChevronDown className="h-6 w-6" />
+      </button>
       {screenUid != null ? (
         /* ---- Someone is presenting: big screen stage + camera filmstrip ---- */
         <div className="relative flex min-h-0 flex-1 flex-col">

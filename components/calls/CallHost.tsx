@@ -8,8 +8,11 @@ import { useCall } from "@/lib/calls/store";
 import { agora } from "@/lib/calls/AgoraService";
 import { teardown } from "@/lib/calls/controller";
 import { generateAgoraUid } from "@/lib/calls/agoraUid";
+import { playRingtone, stopRingtone } from "@/lib/calls/ringtone";
 import { IncomingCallModal } from "./IncomingCallModal";
 import { CallScreen } from "./CallScreen";
+import { FloatingCallWidget } from "./FloatingCallWidget";
+import { CameraInvitationSheet } from "./CameraInvitationSheet";
 
 /**
  * Single orchestrator for calls (mounted once in the app layout). Owns the Agora
@@ -23,7 +26,35 @@ export function CallHost() {
   const socket = useRealtime((s) => s.socket);
   const incoming = useCall((s) => s.incoming);
   const status = useCall((s) => s.status);
+  const minimized = useCall((s) => s.minimized);
+  const cameraInvite = useCall((s) => s.cameraInvite);
+  const localVideoOn = useCall((s) => s.localVideoOn);
   const qc = useQueryClient();
+
+  // Ring tones: incoming ring while the invite is showing, outgoing ringback
+  // while dialing/ringing, silence once connected/ended. A ref avoids restarting
+  // the cadence on the calling→ringing transition.
+  const ringKind = useRef<"incoming" | "outgoing" | null>(null);
+  useEffect(() => {
+    const want: "incoming" | "outgoing" | null =
+      incoming && status === "idle"
+        ? "incoming"
+        : status === "calling" || status === "ringing"
+          ? "outgoing"
+          : null;
+    if (want === ringKind.current) return;
+    ringKind.current = want;
+    if (want) playRingtone(want);
+    else stopRingtone();
+  }, [incoming, status]);
+  useEffect(() => () => stopRingtone(), []);
+
+  // Camera-invitation prompt auto-dismisses after 30 s (native parity).
+  useEffect(() => {
+    if (!cameraInvite) return;
+    const id = setTimeout(() => useCall.getState().setCameraInvite(false), 30_000);
+    return () => clearTimeout(id);
+  }, [cameraInvite]);
 
   // When a call finishes (status → idle), refresh the call history.
   const prevStatus = useRef(status);
@@ -131,17 +162,26 @@ export function CallHost() {
       useCall.getState().removePeer(d.screenUid);
     };
 
+    // A peer turned their camera on mid-call and invites us to do the same.
+    const onCameraInvite = (d: { callUUID?: string; channelName?: string }) => {
+      const st = useCall.getState();
+      if (!isForCall(d) || st.localVideoOn) return;
+      st.setCameraInvite(true);
+    };
+
     socket.on("create", onCreate);
     socket.on("call-received", onReceived);
     socket.on("call-ended", onEnded);
     socket.on("screen-share-started", onScreenStarted);
     socket.on("screen-share-stopped", onScreenStopped);
+    socket.on("camera-on-invitation", onCameraInvite);
     return () => {
       socket.off("create", onCreate);
       socket.off("call-received", onReceived);
       socket.off("call-ended", onEnded);
       socket.off("screen-share-started", onScreenStarted);
       socket.off("screen-share-stopped", onScreenStopped);
+      socket.off("camera-on-invitation", onCameraInvite);
     };
   }, [socket, callerId, myUsername]);
 
@@ -166,7 +206,11 @@ export function CallHost() {
       {incoming && status === "idle" && (
         <IncomingCallModal callerId={callerId} />
       )}
-      {status !== "idle" && <CallScreen />}
+      {status !== "idle" &&
+        (minimized ? <FloatingCallWidget /> : <CallScreen />)}
+      {status !== "idle" && cameraInvite && !localVideoOn && (
+        <CameraInvitationSheet />
+      )}
     </>
   );
 }

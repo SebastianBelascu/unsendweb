@@ -110,6 +110,8 @@ export interface MailMessage {
   hasHtml?: boolean;
   /** System/info line (joined/left/added, unsent) — rendered centered, no bubble. */
   isInfoMessage?: boolean;
+  /** Call info message — rendered as a call bubble (incoming/missed/answered). */
+  isCall?: boolean;
   /** Reaction reply-message — never shown in the thread (chip-only, like native). */
   isHidden?: boolean;
   outbound: boolean;
@@ -125,6 +127,10 @@ export interface MailMessage {
   /** Per-user receipt rosters — "Read by" / "Delivered to" in Message info. */
   readInfo?: MessageReceipt[];
   deliveryInfo?: MessageReceipt[];
+  /** Structured @mentions over `text` (offset/length) — rendered as chips. */
+  mentions?: import("./mentions").MentionDto[];
+  /** Sender opted into a URL link preview for this message. */
+  withUrlPreview?: boolean;
   attachments?: MailAttachment[];
 }
 

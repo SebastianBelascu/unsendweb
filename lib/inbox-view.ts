@@ -11,6 +11,7 @@ export type InboxFilter =
   | "all"
   | "unread"
   | "groups"
+  | "promotions"
   | "bookmarks"
   | "spam"
   | "deleted";
@@ -29,10 +30,27 @@ export const INBOX_FILTERS: { key: InboxFilter; label: string }[] = [
   { key: "all", label: "All" },
   { key: "unread", label: "Unread" },
   { key: "groups", label: "Groups" },
+  { key: "promotions", label: "Promotions" },
   { key: "bookmarks", label: "Bookmarks" },
   { key: "spam", label: "Spam" },
   { key: "deleted", label: "Deleted" },
 ];
+
+/**
+ * Promotional split: the "inbox" bucket (all / unread / groups / promotions) is
+ * split so promo threads only show under "Promotions" (matches native's
+ * separate Promo subscreen). Bookmarks/spam/deleted show everything.
+ */
+export function promoVisible(
+  t: { isPromotional?: boolean },
+  filter: InboxFilter,
+  backendFilter: MailFilter,
+): boolean {
+  if (backendFilter !== "inbox") return true;
+  return filter === "promotions"
+    ? Boolean(t.isPromotional)
+    : !t.isPromotional;
+}
 
 export function normalizeSection(v: string | null | undefined): NavSection {
   return v && NAV_SECTIONS.some((s) => s.key === v) ? (v as NavSection) : "all";

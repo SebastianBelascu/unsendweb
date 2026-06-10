@@ -1,6 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import { X } from "lucide-react";
+import { recentReactions } from "@/lib/recent-reactions";
 
 const EMOJI_GROUPS: { label: string; emojis: string[] }[] = [
   {
@@ -63,6 +65,13 @@ export function EmojiPicker({
   onPick: (emoji: string) => void;
   onClose: () => void;
 }) {
+  // Recents shown as a top group. The localStorage read lives in
+  // lib/recent-reactions; lazy init keeps it out of render and off an effect.
+  const [recent] = useState<string[]>(() => recentReactions(16));
+  const groups = recent.length
+    ? [{ label: "Recently used", emojis: recent }, ...EMOJI_GROUPS]
+    : EMOJI_GROUPS;
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center"
@@ -84,7 +93,7 @@ export function EmojiPicker({
           </button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-3">
-          {EMOJI_GROUPS.map((g) => (
+          {groups.map((g) => (
             <div key={g.label} className="mb-3">
               <div className="mb-1 px-1 text-micro font-semibold uppercase tracking-wide text-faint">
                 {g.label}

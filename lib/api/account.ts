@@ -48,6 +48,28 @@ export function usePrivacy() {
   });
 }
 
+/** Step 1 of changing the phone number — send an SMS code to the new number. */
+export function useSendPhoneCode() {
+  return useMutation({
+    mutationFn: (phone: string) =>
+      apiSend<{ success?: boolean; message?: string }>(
+        "/users/me/phone/send-code",
+        "POST",
+        { phone },
+      ),
+  });
+}
+
+/** Step 2 — verify the code and commit the new phone number. */
+export function useVerifyPhoneChange() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ phone, code }: { phone: string; code: string }) =>
+      apiSend("/users/me/phone/verify", "POST", { phone, code }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["session"] }),
+  });
+}
+
 export function useChangePassword() {
   return useMutation({
     mutationFn: (body: { oldPassword: string; newPassword: string }) =>

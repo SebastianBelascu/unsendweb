@@ -11,6 +11,7 @@ import {
   Loader2,
   LogOut,
   Monitor,
+  Phone,
   Share2,
   ShieldCheck,
   Trash2,
@@ -35,11 +36,14 @@ import {
   useDeviceActions,
   useDevices,
   usePrivacy,
+  useSendPhoneCode,
   useSession,
   useUpdatePrivacy,
   useUpdateProfile,
+  useVerifyPhoneChange,
   type ProfileUpdate,
 } from "@/lib/api/account";
+import { toast } from "@/lib/toast";
 
 /** Reactively read this device's stored avatar URL (updates after upload). */
 function useStoredAvatar(username?: string): string | undefined {
@@ -365,6 +369,119 @@ function PrivacySection() {
   );
 }
 
+function PhoneSection() {
+  const sendCode = useSendPhoneCode();
+  const verify = useVerifyPhoneChange();
+  const [phone, setPhone] = useState("");
+  const [code, setCode] = useState("");
+  const [step, setStep] = useState<"phone" | "code">("phone");
+  const [error, setError] = useState<string | null>(null);
+
+  function onSend(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    const p = phone.trim();
+    if (!/^\+?[0-9]{7,15}$/.test(p)) {
+      setError("Enter a valid number, e.g. +14155551234.");
+      return;
+    }
+    sendCode.mutate(p, {
+      onSuccess: () => {
+        setStep("code");
+        toast("Verification code sent");
+      },
+      onError: () =>
+        setError("Couldn't send the code — the number may be in use."),
+    });
+  }
+
+  function onVerify(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    verify.mutate(
+      { phone: phone.trim(), code: code.trim() },
+      {
+        onSuccess: () => {
+          toast("Phone number updated");
+          setStep("phone");
+          setPhone("");
+          setCode("");
+        },
+        onError: () => setError("Invalid or expired code."),
+      },
+    );
+  }
+
+  return (
+    <Section title="Phone number">
+      {step === "phone" ? (
+        <form onSubmit={onSend} className="flex max-w-sm flex-col gap-3">
+          <input
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="New phone (e.g. +14155551234)"
+            inputMode="tel"
+            autoComplete="tel"
+            className={inputCls}
+          />
+          {error && <span className="text-footnote text-accent">{error}</span>}
+          <button
+            type="submit"
+            disabled={sendCode.isPending || !phone.trim()}
+            className="flex items-center gap-2 self-start rounded-full bg-surface-2 px-5 py-2 text-subhead font-semibold text-ink hover:bg-surface-3 disabled:opacity-50"
+          >
+            {sendCode.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Phone className="h-4 w-4" />
+            )}
+            Send code
+          </button>
+        </form>
+      ) : (
+        <form onSubmit={onVerify} className="flex max-w-sm flex-col gap-3">
+          <p className="text-footnote text-muted">
+            We sent a code to {phone}.
+          </p>
+          <input
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            placeholder="6-digit code"
+            inputMode="numeric"
+            maxLength={8}
+            className={inputCls}
+          />
+          {error && <span className="text-footnote text-accent">{error}</span>}
+          <div className="flex items-center gap-3">
+            <button
+              type="submit"
+              disabled={verify.isPending || !code.trim()}
+              className="flex items-center gap-2 rounded-full bg-surface-2 px-5 py-2 text-subhead font-semibold text-ink hover:bg-surface-3 disabled:opacity-50"
+            >
+              {verify.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Check className="h-4 w-4" />
+              )}
+              Verify &amp; update
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setStep("phone");
+                setError(null);
+              }}
+              className="text-footnote text-link hover:underline"
+            >
+              Change number
+            </button>
+          </div>
+        </form>
+      )}
+    </Section>
+  );
+}
+
 function PasswordSection() {
   const change = useChangePassword();
   const [oldPassword, setOld] = useState("");
@@ -626,6 +743,7 @@ export function SettingsScreen() {
               <ProfileSection user={user ?? null} />
               <AppearanceSection />
               <PrivacySection />
+              <PhoneSection />
               <PasswordSection />
               <DevicesSection />
               <SupportSection />
