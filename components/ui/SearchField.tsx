@@ -8,11 +8,13 @@ export function SearchField({
   onChange,
   placeholder = "Search",
   className,
+  autoFocus = false,
 }: {
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
   className?: string;
+  autoFocus?: boolean;
 }) {
   return (
     <div className={cn("relative", className)}>
@@ -21,6 +23,7 @@ export function SearchField({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
+        autoFocus={autoFocus}
         className="h-[42px] w-full rounded-pill border border-line-strong bg-canvas pl-9 pr-9 text-body text-ink-strong outline-none transition-colors placeholder:text-faint focus:border-muted"
       />
       {value && (

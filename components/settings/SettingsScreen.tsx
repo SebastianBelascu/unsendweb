@@ -2,7 +2,10 @@
 
 import { useRouter } from "next/navigation";
 import { useRef, useState, useSyncExternalStore } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
+import { clearPersistedQueryCache } from "@/lib/query-cache";
+import { clearAllDrafts } from "@/lib/drafts";
 import {
   Camera,
   Check,
@@ -715,6 +718,7 @@ function DangerSection({ onConfirm }: { onConfirm: () => void }) {
 
 export function SettingsScreen() {
   const router = useRouter();
+  const qc = useQueryClient();
   const { data: user, isLoading } = useSession();
   const [loggingOut, setLoggingOut] = useState(false);
   const [confirmLogout, setConfirmLogout] = useState(false);
@@ -722,6 +726,10 @@ export function SettingsScreen() {
   async function onLogout() {
     setLoggingOut(true);
     await logout();
+    // Drop this account's cached data so the next sign-in starts clean.
+    qc.clear();
+    clearPersistedQueryCache();
+    clearAllDrafts();
     router.replace("/login");
     router.refresh();
   }

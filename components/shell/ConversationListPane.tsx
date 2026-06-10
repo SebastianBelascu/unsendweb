@@ -1,52 +1,36 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import {
-  AtSign,
-  CheckCheck,
-  ListChecks,
-  Loader2,
-  PenSquare,
-  RotateCcw,
-  ShieldAlert,
-  Trash2,
-  X,
-} from "lucide-react";
+import { Loader2, PenSquare, Search, X } from "lucide-react";
 import { ThreadsList } from "@/components/mail/ThreadsList";
 import { CallsList } from "@/components/calls/CallsList";
 import { ContactsPane } from "@/components/contacts/ContactsPane";
-import { MentionsSheet } from "@/components/mail/MentionsSheet";
 import { SearchPeople } from "./SearchPeople";
 import { SyncStatus } from "@/components/mail/SyncStatus";
 import { SearchField } from "@/components/ui/SearchField";
 import { IconButton } from "@/components/ui/IconButton";
 import { Chip } from "@/components/ui/Chip";
-import {
-  updateThreads,
-  usePinnedThreads,
-  useThreadsInfinite,
-} from "@/lib/api/threads";
-import { markThreadSeen } from "@/lib/api/messages";
+import { usePinnedThreads, useThreadsInfinite } from "@/lib/api/threads";
 import { useSession } from "@/lib/api/account";
 import { useDraftStore } from "@/lib/drafts";
 import { useComposeModal } from "@/lib/compose-modal";
 import {
-  INBOX_FILTERS,
+  CALL_FILTERS,
   filterBackendFilter,
-  filterPredicate,
+  filtersForSection,
   promoVisible,
   sectionLabel,
   sectionTypePredicate,
+  type CallFilter,
   type InboxFilter,
   type NavSection,
 } from "@/lib/inbox-view";
 import { cn } from "@/lib/utils";
 
 /**
- * Conversation list (middle pane). The left rail picks the `section`; inside the
- * inbox section, chips pick the `filter`. The "calls" section shows call history
- * instead of threads.
+ * Conversation list (middle pane). The left rail picks the `section`; chips pick
+ * the bucket (per section). Search is collapsed behind an icon. Calls + Contacts
+ * sections render their own lists.
  */
 export function ConversationListPane({
   section,
@@ -60,18 +44,22 @@ export function ConversationListPane({
   activeId?: string;
 }) {
   const [query, setQuery] = useState("");
-  const [selecting, setSelecting] = useState(false);
-  const [mentionsOpen, setMentionsOpen] = useState(false);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [busy, setBusy] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [callFilter, setCallFilter] = useState<CallFilter>("all");
   const { data: me } = useSession();
-  const qc = useQueryClient();
 
   // Hydrate persisted drafts once so inbox rows can show a "Draft" preview.
   useEffect(() => useDraftStore.getState().hydrate(), []);
 
-  const isCalls = section === "calls";
-  const backendFilter = filterBackendFilter(filter);
+  // The active filter clamped to what this section supports (chats has no
+  // promo/spam) — invalid filters fall back to "all" while keeping the stored
+  // value for when you return to a section that does support it.
+  const sectionFilters = filtersForSection(section);
+  const effectiveFilter = sectionFilters.some((f) => f.key === filter)
+    ? filter
+    : "all";
+  const backendFilter = filterBackendFilter(effectiveFilter);
+
   const {
     data,
     isLoading,
@@ -81,25 +69,21 @@ export function ConversationListPane({
     hasNextPage,
     isFetchingNextPage,
   } = useThreadsInfinite(backendFilter);
-  // Pinned threads are excluded from the backend `inbox` filter, so fetch them
-  // separately and pin them to the top of the normal ("all" bucket) view.
   const { data: pinned } = usePinnedThreads();
 
   const all = useMemo(() => {
     const items = data?.pages.flatMap((p) => p.items) ?? [];
     const typePred = sectionTypePredicate(section); // chats vs emails vs all
-    const bucketPred = filterPredicate(filter); // unread / groups
     const keep = (t: (typeof items)[number]) =>
       (!typePred || typePred(t)) &&
-      (!bucketPred || bucketPred(t)) &&
-      promoVisible(t, filter, backendFilter); // promo only under "Promotions"
+      promoVisible(t, effectiveFilter, backendFilter); // promo only under "Promotions"
     // Order by last-message time (the mapped `updatedAt`), so metadata bumps
     // (bookmark/silent/read) never reorder the list — only pin does, via pins.
     const base = items
       .filter(keep)
       .sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt));
     // Pinned row only on the normal bucket (chip "all"); honor the rail type.
-    if (filter !== "all") return base;
+    if (effectiveFilter !== "all") return base;
     // Pins sort by pinDate (when you pinned), NOT last-message time — native
     // `Thread.sortedDate`. So a fresh message in a pinned chat updates its
     // preview but never reshuffles the pinned group. Most-recently-pinned first.
@@ -117,7 +101,7 @@ export function ConversationListPane({
     if (!pins.length) return base;
     const pinnedIds = new Set(pins.map((t) => t.id));
     return [...pins, ...base.filter((t) => !pinnedIds.has(t.id))];
-  }, [data, section, filter, pinned, backendFilter]);
+  }, [data, section, effectiveFilter, pinned, backendFilter]);
 
   const threads = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -145,175 +129,119 @@ export function ConversationListPane({
     return () => ob.disconnect();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
-  function toggleSelect(id: string) {
-    setSelected((cur) => {
-      const next = new Set(cur);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
-  async function runBulk(fn: () => Promise<unknown>) {
-    setBusy(true);
-    try {
-      await fn();
-    } finally {
-      qc.invalidateQueries({ queryKey: ["threads"] });
-      qc.invalidateQueries({ queryKey: ["chatThreads"] });
-      setSelected(new Set());
-      setSelecting(false);
-      setBusy(false);
-    }
-  }
-
-  const ids = [...selected];
   const openCompose = useComposeModal((s) => s.open);
   const title = sectionLabel(section);
   // Chats rail → chat compose; All/Emails → email compose.
   const composeEmail = section !== "chats";
 
-  // The calls section has its own list (no threads, no selection).
+  function toggleSearch() {
+    setSearchOpen((open) => {
+      if (open) {
+        // Closing the search panel clears the query AND the filter — the chips
+        // live inside this panel, so a hidden active filter would be confusing.
+        setQuery("");
+        onFilter("all");
+      }
+      return !open;
+    });
+  }
+
+  // The calls section has its own list + its own filter chips (no search).
   if (section === "calls") {
     return (
       <div className="flex h-full flex-col">
-        <header className="flex items-center gap-2 border-b border-line px-4 pb-3 pt-4">
+        <header className="flex flex-col gap-3 border-b border-line px-4 pb-3 pt-4">
           <h1 className="text-title font-bold text-ink-strong">Calls</h1>
+          <div className="-mx-1 flex flex-wrap gap-1.5 px-1 pb-0.5">
+            {CALL_FILTERS.map((c) => {
+              const on = callFilter === c.key;
+              return (
+                <Chip
+                  key={c.key}
+                  active={on}
+                  onClick={() => setCallFilter(on ? "all" : c.key)}
+                  className={cn(
+                    "gap-1 px-2",
+                    on && "bg-accent text-white hover:opacity-90",
+                  )}
+                >
+                  {c.label}
+                  {on && <X className="-mr-0.5 h-3.5 w-3.5" />}
+                </Chip>
+              );
+            })}
+          </div>
         </header>
-        <CallsList />
+        <CallsList filter={callFilter} />
       </div>
     );
   }
 
-  // The contacts section shows the address book (no threads, no selection).
+  // The contacts section shows the address book (no threads).
   if (section === "contacts") {
     return <ContactsPane />;
   }
 
   return (
     <div className="flex h-full flex-col">
-      {selecting ? (
-        <header className="flex flex-col gap-2.5 border-b border-line px-4 py-3">
-          <div className="flex items-center gap-2">
+      <header className="flex flex-col gap-3 border-b border-line px-4 pb-3 pt-4">
+        <div className="flex items-center gap-2">
+          <h1 className="text-title font-bold text-ink-strong">{title}</h1>
+          <SyncStatus />
+          <div className="ml-auto flex items-center gap-1">
             <IconButton
-              label="Cancel selection"
-              onClick={() => {
-                setSelecting(false);
-                setSelected(new Set());
-              }}
-              size={36}
+              label={searchOpen ? "Close search" : "Search"}
+              variant="surface"
+              size={38}
+              onClick={toggleSearch}
             >
-              <X className="h-5 w-5" />
+              {searchOpen ? (
+                <X className="h-4 w-4" />
+              ) : (
+                <Search className="h-4 w-4" />
+              )}
             </IconButton>
-            <span className="text-body font-semibold text-ink-strong">
-              {selected.size} selected
-            </span>
-            {busy && <Loader2 className="h-4 w-4 animate-spin text-faint" />}
             <button
               type="button"
-              onClick={() =>
-                setSelected((cur) =>
-                  cur.size >= threads.length && threads.length > 0
-                    ? new Set()
-                    : new Set(threads.map((t) => t.id)),
-                )
-              }
-              className="ml-auto rounded-pill px-3 py-1.5 text-footnote font-semibold text-link hover:bg-surface-3"
+              onClick={() => openCompose({ isEmail: composeEmail })}
+              aria-label="Compose"
+              title="Compose"
+              className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-full bg-accent text-white transition-colors hover:opacity-90"
             >
-              {selected.size >= threads.length && threads.length > 0
-                ? "Deselect all"
-                : "Select all"}
+              <PenSquare className="h-4 w-4" />
             </button>
           </div>
-          <div className="flex items-stretch gap-1.5">
-            <BulkBtn
-              label="Mark read"
-              icon={CheckCheck}
-              disabled={!ids.length || busy}
-              onClick={() => runBulk(() => Promise.all(ids.map(markThreadSeen)))}
+        </div>
+        {searchOpen && (
+          <>
+            <SearchField
+              value={query}
+              onChange={setQuery}
+              placeholder="Search"
+              autoFocus
             />
-            {backendFilter === "spam" ? (
-              <BulkBtn
-                label="Not spam"
-                icon={ShieldAlert}
-                disabled={!ids.length || busy}
-                onClick={() => runBulk(() => updateThreads(ids, "isSpam", false))}
-              />
-            ) : backendFilter !== "deleted" ? (
-              <BulkBtn
-                label="Spam"
-                icon={ShieldAlert}
-                disabled={!ids.length || busy}
-                onClick={() => runBulk(() => updateThreads(ids, "isSpam", true))}
-              />
-            ) : null}
-            {backendFilter === "deleted" ? (
-              <BulkBtn
-                label="Restore"
-                icon={RotateCcw}
-                disabled={!ids.length || busy}
-                onClick={() => runBulk(() => updateThreads(ids, "isDeleted", false))}
-              />
-            ) : (
-              <BulkBtn
-                label="Delete"
-                icon={Trash2}
-                danger
-                disabled={!ids.length || busy}
-                onClick={() => runBulk(() => updateThreads(ids, "isDeleted", true))}
-              />
-            )}
-          </div>
-        </header>
-      ) : (
-        <header className="flex flex-col gap-3 border-b border-line px-4 pb-3 pt-4">
-          <div className="flex items-center gap-2">
-            <h1 className="text-title font-bold text-ink-strong">{title}</h1>
-            <SyncStatus />
-            <div className="ml-auto flex items-center gap-1">
-              <IconButton
-                label="Mentions"
-                variant="surface"
-                size={38}
-                onClick={() => setMentionsOpen(true)}
-              >
-                <AtSign className="h-4 w-4" />
-              </IconButton>
-              <IconButton
-                label="Select"
-                variant="surface"
-                size={38}
-                onClick={() => setSelecting(true)}
-              >
-                <ListChecks className="h-4 w-4" />
-              </IconButton>
-              <button
-                type="button"
-                onClick={() => openCompose({ isEmail: composeEmail })}
-                aria-label="Compose"
-                title="Compose"
-                className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-full bg-accent text-white transition-colors hover:opacity-90"
-              >
-                <PenSquare className="h-4 w-4" />
-              </button>
+            <div className="-mx-1 flex flex-wrap gap-1.5 px-1 pb-0.5">
+              {sectionFilters.map((c) => {
+                const on = effectiveFilter === c.key;
+                return (
+                  <Chip
+                    key={c.key}
+                    active={on}
+                    onClick={() => onFilter(on ? "all" : c.key)}
+                    className={cn(
+                      "gap-1 px-2",
+                      on && "bg-accent text-white hover:opacity-90",
+                    )}
+                  >
+                    {c.label}
+                    {on && <X className="-mr-0.5 h-3.5 w-3.5" />}
+                  </Chip>
+                );
+              })}
             </div>
-          </div>
-          <SearchField value={query} onChange={setQuery} placeholder="Search" />
-          {!isCalls && (
-            <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-0.5">
-              {INBOX_FILTERS.map((c) => (
-                <Chip
-                  key={c.key}
-                  active={filter === c.key}
-                  onClick={() => onFilter(c.key)}
-                >
-                  {c.label}
-                </Chip>
-              ))}
-            </div>
-          )}
-        </header>
-      )}
+          </>
+        )}
+      </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {isLoading ? (
@@ -350,9 +278,6 @@ export function ConversationListPane({
               filter={backendFilter}
               currentUsername={me?.username}
               activeId={activeId}
-              selecting={selecting}
-              selectedIds={selected}
-              onToggleSelect={toggleSelect}
             />
             <div ref={sentinel} className="h-8" />
             {isFetchingNextPage && (
@@ -363,38 +288,6 @@ export function ConversationListPane({
           </>
         )}
       </div>
-
-      {mentionsOpen && <MentionsSheet onClose={() => setMentionsOpen(false)} />}
     </div>
-  );
-}
-
-function BulkBtn({
-  label,
-  icon: Icon,
-  disabled,
-  danger,
-  onClick,
-}: {
-  label: string;
-  icon: typeof Trash2;
-  disabled: boolean;
-  danger?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      title={label}
-      className={cn(
-        "flex flex-1 flex-col items-center justify-center gap-1 rounded-xl bg-surface-2 px-2 py-2 text-caption font-semibold transition-colors hover:bg-surface-3 disabled:opacity-40",
-        danger ? "text-accent" : "text-ink",
-      )}
-    >
-      <Icon className="h-[18px] w-[18px]" />
-      <span className="whitespace-nowrap">{label}</span>
-    </button>
   );
 }

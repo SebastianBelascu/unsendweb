@@ -1,13 +1,17 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { UserAvatar } from "@/components/mail/UserAvatar";
 import { useSearchPeople } from "@/lib/api/search";
+import { useChatThreads } from "@/lib/api/threads";
 import { useComposeModal } from "@/lib/compose-modal";
+import { chatHref, findDmThread } from "@/lib/chat-href";
 
 /*
   "People" section of universal search — surfaces contacts + platform users
   matching the query (even with no existing thread), so search finds people, not
-  just open conversations. Tapping one starts/opens a chat. Rendered above the
+  just open conversations. Tapping one OPENS the existing chat thread (the goal)
+  and only falls back to compose when there's no thread yet. Rendered above the
   filtered conversation list while searching.
 */
 export function SearchPeople({
@@ -18,8 +22,16 @@ export function SearchPeople({
   selfUsername?: string;
 }) {
   const people = useSearchPeople(query, selfUsername);
+  const { data: chats } = useChatThreads();
   const openCompose = useComposeModal((s) => s.open);
+  const router = useRouter();
   if (people.length === 0) return null;
+
+  function openPerson(address: string) {
+    const dm = findDmThread(chats, address);
+    if (dm) router.push(chatHref(dm, selfUsername));
+    else openCompose({ isEmail: false, to: address });
+  }
 
   return (
     <div className="border-b border-line pb-1">
@@ -30,7 +42,7 @@ export function SearchPeople({
         <button
           key={p.address}
           type="button"
-          onClick={() => openCompose({ isEmail: false, to: p.address })}
+          onClick={() => openPerson(p.address)}
           className="flex w-full items-center gap-3 px-4 py-2 text-left transition-colors hover:bg-surface-2"
         >
           <UserAvatar

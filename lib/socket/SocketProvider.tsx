@@ -8,6 +8,8 @@ import { applyThreadEvent, bumpThread } from "@/lib/realtime/threadCache";
 import { isActiveThread } from "@/lib/realtime/active-thread";
 import { markSeenLocally } from "@/lib/realtime/optimistic-bumps";
 import { markThreadSeen } from "@/lib/api/messages";
+import { clearPersistedQueryCache } from "@/lib/query-cache";
+import { clearAllDrafts } from "@/lib/drafts";
 import { mapMessage } from "@/lib/api/mappers";
 import type { BackendMessage, BackendThread } from "@/lib/api/backend-types";
 import type { MailMessage } from "@/lib/types";
@@ -194,6 +196,10 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         });
         // Another device signed this session out → drop the session locally.
         socket.on("session:invalidate", () => {
+          // Full reload re-hydrates Providers from localStorage, so wipe the
+          // persisted account data first (no cross-account leak on next login).
+          clearPersistedQueryCache();
+          clearAllDrafts();
           fetch("/api/auth/logout", { method: "POST" })
             .catch(() => {})
             .finally(() => {

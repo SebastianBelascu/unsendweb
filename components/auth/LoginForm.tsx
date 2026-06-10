@@ -3,11 +3,15 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { login } from "@/lib/api/auth";
+import { clearPersistedQueryCache } from "@/lib/query-cache";
+import { clearAllDrafts } from "@/lib/drafts";
 
 export function LoginForm() {
   const router = useRouter();
+  const qc = useQueryClient();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -20,6 +24,11 @@ export function LoginForm() {
     setBusy(true);
     try {
       await login(username.trim(), password);
+      // Wipe any previous account's cached data (in-memory + persisted) so the
+      // new account never sees the old one's threads/messages/drafts.
+      qc.clear();
+      clearPersistedQueryCache();
+      clearAllDrafts();
       router.replace("/mail/inbox");
       router.refresh();
     } catch (err) {

@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Loader2,
@@ -15,10 +16,31 @@ import { useCall } from "@/lib/calls/store";
 import { placeCall } from "@/lib/calls/controller";
 import { UserAvatar } from "@/components/mail/UserAvatar";
 import { threadTime } from "@/lib/format";
+import type { CallFilter } from "@/lib/inbox-view";
 import { cn } from "@/lib/utils";
 
+function isMissed(c: CallRecord): boolean {
+  return (
+    c.status === "missed" || c.status === "declined" || c.status === "failed"
+  );
+}
+
+/** Partition matching the row labels (missed wins over the direction). */
+function matchesFilter(
+  c: CallRecord,
+  myUserId: string | undefined,
+  filter: CallFilter,
+): boolean {
+  if (filter === "all") return true;
+  const missed = isMissed(c);
+  const outgoing = Boolean(myUserId && c.callerId === myUserId);
+  if (filter === "missed") return missed;
+  if (filter === "outgoing") return !missed && outgoing;
+  return !missed && !outgoing; // incoming
+}
+
 /** Recent calls (history). Tapping a 1:1 entry calls that person back. */
-export function CallsList() {
+export function CallsList({ filter = "all" }: { filter?: CallFilter }) {
   const { data: me } = useSession();
   const status = useCall((s) => s.status);
   const busy = status !== "idle";
@@ -27,6 +49,11 @@ export function CallsList() {
     queryFn: () => getCallHistory(100),
     refetchInterval: 15_000,
   });
+
+  const calls = useMemo(
+    () => (data ?? []).filter((c) => matchesFilter(c, me?.userId, filter)),
+    [data, me?.userId, filter],
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -50,14 +77,14 @@ export function CallsList() {
               Retry
             </button>
           </div>
-        ) : !data || data.length === 0 ? (
+        ) : calls.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 p-10 text-center text-subhead text-muted">
             <Phone className="h-8 w-8 text-faint" />
-            <p>No recent calls yet.</p>
+            <p>{filter === "all" ? "No recent calls yet." : "No calls here."}</p>
           </div>
         ) : (
           <ul className="flex flex-col">
-            {data.map((c) => (
+            {calls.map((c) => (
               <CallRow
                 key={c.uuid}
                 call={c}

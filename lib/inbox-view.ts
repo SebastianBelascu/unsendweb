@@ -9,12 +9,13 @@ import type { MailFilter, ThreadListItem } from "./types";
 export type NavSection = "all" | "chats" | "emails" | "calls" | "contacts";
 export type InboxFilter =
   | "all"
-  | "unread"
-  | "groups"
   | "promotions"
   | "bookmarks"
   | "spam"
   | "deleted";
+
+/** Call-history filter (calls section only — its own dimension, no buckets). */
+export type CallFilter = "all" | "incoming" | "outgoing" | "missed";
 
 /** Left-rail destinations (icons live in NavRail). */
 export const NAV_SECTIONS: { key: NavSection; label: string }[] = [
@@ -25,21 +26,43 @@ export const NAV_SECTIONS: { key: NavSection; label: string }[] = [
   { key: "contacts", label: "Contacts" },
 ];
 
-/** Filter chips shown on top of every list section (except calls). */
+/** Every filter chip (used for URL validation). Per-section subset below. */
 export const INBOX_FILTERS: { key: InboxFilter; label: string }[] = [
   { key: "all", label: "All" },
-  { key: "unread", label: "Unread" },
-  { key: "groups", label: "Groups" },
   { key: "promotions", label: "Promotions" },
   { key: "bookmarks", label: "Bookmarks" },
   { key: "spam", label: "Spam" },
   { key: "deleted", label: "Deleted" },
 ];
 
+// No "all" chip — the unfiltered view IS "all"; selecting a chip filters, and
+// its X (active state) clears back to "all".
+export const CALL_FILTERS: { key: CallFilter; label: string }[] = [
+  { key: "incoming", label: "Incoming" },
+  { key: "outgoing", label: "Outgoing" },
+  { key: "missed", label: "Missed" },
+];
+
 /**
- * Promotional split: the "inbox" bucket (all / unread / groups / promotions) is
- * split so promo threads only show under "Promotions" (matches native's
- * separate Promo subscreen). Bookmarks/spam/deleted show everything.
+ * Chips shown per section (no "All" — deselect via the chip's X): chats only
+ * carry Bookmarks/Deleted (no promo/spam, which are email concepts); All +
+ * Emails carry the full set.
+ */
+export function filtersForSection(
+  section: NavSection,
+): { key: InboxFilter; label: string }[] {
+  const buckets = INBOX_FILTERS.filter((f) => f.key !== "all");
+  if (section === "chats")
+    return buckets.filter(
+      (f) => f.key === "bookmarks" || f.key === "deleted",
+    );
+  return buckets;
+}
+
+/**
+ * Promotional split: the "inbox" bucket (all / promotions) is split so promo
+ * threads only show under "Promotions" (matches native's separate Promo
+ * subscreen). Bookmarks/spam/deleted show everything.
  */
 export function promoVisible(
   t: { isPromotional?: boolean },
@@ -67,7 +90,7 @@ export function filterBackendFilter(f: InboxFilter): MailFilter {
   if (f === "bookmarks") return "bookmarks";
   if (f === "spam") return "spam";
   if (f === "deleted") return "deleted";
-  return "inbox"; // all / unread / groups
+  return "inbox"; // all / promotions
 }
 
 /** Client-side predicate for the rail content type (chats vs emails vs all). */
@@ -77,15 +100,6 @@ export function sectionTypePredicate(
   if (s === "chats") return (t) => !t.isEmail;
   if (s === "emails") return (t) => t.isEmail;
   return null; // all (calls is handled separately, has no thread list)
-}
-
-/** Client-side predicate for the chip bucket (unread/groups). */
-export function filterPredicate(
-  f: InboxFilter,
-): ((t: ThreadListItem) => boolean) | null {
-  if (f === "unread") return (t) => t.unread;
-  if (f === "groups") return (t) => Boolean(t.isGroup);
-  return null; // all / bookmarks / spam / deleted (bucket via backend filter)
 }
 
 export function sectionLabel(s: NavSection): string {

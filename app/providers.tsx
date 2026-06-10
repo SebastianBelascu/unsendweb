@@ -9,6 +9,7 @@ import {
 import { useEffect, useState } from "react";
 import { installGlobalErrorHandlers } from "@/lib/observability";
 import { useTheme } from "@/lib/theme-store";
+import { QUERY_CACHE_KEY } from "@/lib/query-cache";
 
 /**
  * Client-side providers. Server entities flow through TanStack Query v5
@@ -16,7 +17,7 @@ import { useTheme } from "@/lib/theme-store";
  * Server Components, so this lives in a 'use client' boundary mounted in the
  * root layout.
  */
-const CACHE_KEY = "unsend.web.qcache";
+const CACHE_KEY = QUERY_CACHE_KEY;
 const MAX_AGE = 24 * 60 * 60 * 1000; // 1 day
 
 export function Providers({ children }: { children: React.ReactNode }) {

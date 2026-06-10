@@ -177,6 +177,22 @@ export function MessageComposer({
     el.setSelectionRange(len, len);
   }, [replyingTo, editing]);
 
+  // Opening a conversation focuses the composer so you can type right away
+  // (WhatsApp-web). Desktop only — popping the keyboard on every open is jarring
+  // on touch. Runs per thread open (the composer remounts via key={id}).
+  useEffect(() => {
+    if (
+      typeof window === "undefined" ||
+      !window.matchMedia("(min-width: 1024px)").matches
+    )
+      return;
+    const el = textareaRef.current;
+    if (!el) return;
+    el.focus({ preventScroll: true });
+    const len = el.value.length;
+    el.setSelectionRange(len, len);
+  }, []);
+
   // After inserting a mention we set the caret on the next paint (the textarea
   // is controlled, so we can't move the caret synchronously).
   useEffect(() => {

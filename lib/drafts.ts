@@ -145,3 +145,15 @@ export function clearDraftMeta(key?: string): void {
   if (key && typeof localStorage !== "undefined")
     localStorage.removeItem(META_PREFIX + key);
 }
+
+/** Wipe ALL drafts (text + meta) + the reactive store — on account change. */
+export function clearAllDrafts(): void {
+  if (typeof localStorage !== "undefined") {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k && (k.startsWith(PREFIX) || k.startsWith(META_PREFIX)))
+        localStorage.removeItem(k);
+    }
+  }
+  useDraftStore.setState({ texts: {}, hydrated: false });
+}
