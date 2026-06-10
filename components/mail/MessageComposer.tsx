@@ -23,6 +23,7 @@ import {
   clearDraft,
   clearDraftMeta,
   flushDraftToRow,
+  hideDraftRow,
   loadDraft,
   loadDraftMeta,
   saveDraft,
@@ -146,9 +147,11 @@ export function MessageComposer({
     });
   }, [threadId, editing, subjOverride, ccOverride, bccOverride]);
 
-  // Surface the draft in the inbox row only on LEAVE (composer unmount on thread
-  // switch), never live while typing — saveDraft keeps localStorage current.
+  // WhatsApp draft-row behavior: opening the conversation hides its "Draft" badge
+  // (the open chat shows its last message); leaving re-surfaces it. Never updates
+  // live while typing — saveDraft keeps localStorage current per keystroke.
   useEffect(() => {
+    hideDraftRow(threadId);
     return () => flushDraftToRow(threadId);
   }, [threadId]);
 

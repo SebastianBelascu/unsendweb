@@ -95,6 +95,15 @@ export function flushDraftToRow(key: string): void {
   else store.drop(key);
 }
 
+/**
+ * Hide the draft from its inbox row (store only — localStorage is untouched, so
+ * the draft is preserved). Used when the conversation is opened: WhatsApp shows
+ * the last message for the chat you're in, then re-surfaces "Draft" on leave.
+ */
+export function hideDraftRow(key: string): void {
+  useDraftStore.getState().drop(key);
+}
+
 export function clearDraft(key?: string): void {
   if (!key) return;
   if (typeof localStorage !== "undefined") localStorage.removeItem(PREFIX + key);
