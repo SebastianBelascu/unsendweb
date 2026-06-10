@@ -60,19 +60,20 @@ export function filtersForSection(
 }
 
 /**
- * Promotional split: the "inbox" bucket (all / promotions) is split so promo
- * threads only show under "Promotions" (matches native's separate Promo
- * subscreen). Bookmarks/spam/deleted show everything.
+ * Promotional handling: ONLY the "Promotions" filter restricts to promo threads.
+ * The main inbox ("all") shows EVERYTHING, promo included — native's Inbox tab
+ * has `excludePromotional = false` (only its separate "Primary" subscreen drops
+ * promo). The previous behavior hid promo from the main inbox, which emptied it
+ * whenever the backend flagged threads promotional.
  */
 export function promoVisible(
   t: { isPromotional?: boolean },
   filter: InboxFilter,
   backendFilter: MailFilter,
 ): boolean {
-  if (backendFilter !== "inbox") return true;
-  return filter === "promotions"
-    ? Boolean(t.isPromotional)
-    : !t.isPromotional;
+  if (backendFilter === "inbox" && filter === "promotions")
+    return Boolean(t.isPromotional);
+  return true;
 }
 
 export function normalizeSection(v: string | null | undefined): NavSection {

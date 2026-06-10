@@ -91,11 +91,7 @@ export function ConversationListPane({
       +new Date(t.pinDate ?? t.updatedAt);
     const pins = (pinned ?? [])
       .filter(
-        (t) =>
-          !t.isDeleted &&
-          !t.isSpam &&
-          !t.isPromotional &&
-          (!typePred || typePred(t)),
+        (t) => !t.isDeleted && !t.isSpam && (!typePred || typePred(t)),
       )
       .sort((a, b) => pinKey(b) - pinKey(a));
     if (!pins.length) return base;
