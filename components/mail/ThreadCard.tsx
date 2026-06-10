@@ -10,6 +10,7 @@ import { threadTime } from "@/lib/format";
 import { localPart, otherParticipants, threadDisplayName } from "@/lib/identity";
 import { useOnline, useTyping } from "@/lib/realtime/hooks";
 import { useDraftText } from "@/lib/drafts";
+import { brandfetchFavicon } from "@/lib/brandfetch";
 import { cn } from "@/lib/utils";
 import type { MailFilter, ThreadListItem } from "@/lib/types";
 
@@ -48,11 +49,12 @@ export function ThreadCard({
   // Unsent draft for this thread → shows as a "Draft" preview (native ThreadRowView).
   const draft = useDraftText(thread.id).trim();
 
-  const domain = others[0]?.address?.split("@")[1];
+  // Brand favicon for promo/brand email senders — Brandfetch off the APEX domain
+  // (native parity); the mail subdomain made Google return a generic globe.
   const favicon =
     thread.favicon ||
-    (thread.isPromotional && domain
-      ? `https://www.google.com/s2/favicons?domain=${domain}&sz=64`
+    (thread.isPromotional
+      ? brandfetchFavicon(others[0]?.address)
       : undefined);
 
   const params = new URLSearchParams();

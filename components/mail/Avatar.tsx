@@ -166,15 +166,9 @@ export function Avatar({
       {imageUrl ? (
         <AvatarImg src={imageUrl} alt={name} size={size} fallback={gradient} />
       ) : favicon ? (
-        <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-full bg-surface-2">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={favicon}
-            alt=""
-            style={{ width: size * 0.58, height: size * 0.58 }}
-            className="rounded"
-          />
-        </div>
+        // Brand favicon (Brandfetch) → falls back to the gradient initials when
+        // the brand has no logo (404), so we never show a broken image.
+        <AvatarImg src={favicon} alt={name} size={size} fallback={gradient} />
       ) : (
         gradient
       )}
