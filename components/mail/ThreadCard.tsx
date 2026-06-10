@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/Badge";
 import { threadTime } from "@/lib/format";
 import { localPart, otherParticipants, threadDisplayName } from "@/lib/identity";
 import { useOnline, useTyping } from "@/lib/realtime/hooks";
+import { useDraftText } from "@/lib/drafts";
 import { cn } from "@/lib/utils";
 import type { MailFilter, ThreadListItem } from "@/lib/types";
 
@@ -44,6 +45,8 @@ export function ThreadCard({
       : undefined;
   const online = useOnline(dmUsername);
   const typing = useTyping(thread.topicId);
+  // Unsent draft for this thread → shows as a "Draft" preview (native ThreadRowView).
+  const draft = useDraftText(thread.id).trim();
 
   const domain = others[0]?.address?.split("@")[1];
   const favicon =
@@ -152,11 +155,20 @@ export function ThreadCard({
                   : "text-faint",
             )}
           >
-            {typing.length
-              ? isGroup && typing[0]
-                ? `${typing[0]} is typing…`
-                : "typing…"
-              : thread.preview}
+            {typing.length ? (
+              isGroup && typing[0] ? (
+                `${typing[0]} is typing…`
+              ) : (
+                "typing…"
+              )
+            ) : draft ? (
+              <>
+                <span className="font-semibold text-accent">Draft: </span>
+                {draft}
+              </>
+            ) : (
+              thread.preview
+            )}
           </span>
           <span className="flex shrink-0 items-center gap-1.5">
             {thread.isSilent && <BellOff className="h-3.5 w-3.5 text-yellow" />}

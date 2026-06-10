@@ -85,7 +85,11 @@ export function mapThread(t: BackendThread): ThreadListItem {
     subject: t.isEmail ? oneLine(t.subject) || undefined : undefined,
     participants,
     preview,
-    updatedAt: t.updatedAt || lm?.createdAt || new Date(0).toISOString(),
+    // Last-message time, NOT thread.updatedAt: the backend bumps updatedAt on
+    // every metadata change (bookmark/silent/read via mongoose timestamps), which
+    // must not reorder the inbox. Fall back to updatedAt only when there's no
+    // message yet. (bumpThread sets this to "now" for optimistic sends.)
+    updatedAt: lm?.createdAt || t.updatedAt || new Date(0).toISOString(),
     isEmail: Boolean(t.isEmail),
     isGroup: Boolean(t.isGroup),
     groupName,

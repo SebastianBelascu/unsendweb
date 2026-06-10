@@ -29,6 +29,7 @@ import {
 } from "@/lib/api/threads";
 import { markThreadSeen } from "@/lib/api/messages";
 import { useSession } from "@/lib/api/account";
+import { useDraftStore } from "@/lib/drafts";
 import { useComposeModal } from "@/lib/compose-modal";
 import {
   INBOX_FILTERS,
@@ -66,6 +67,9 @@ export function ConversationListPane({
   const { data: me } = useSession();
   const qc = useQueryClient();
 
+  // Hydrate persisted drafts once so inbox rows can show a "Draft" preview.
+  useEffect(() => useDraftStore.getState().hydrate(), []);
+
   const isCalls = section === "calls";
   const backendFilter = filterBackendFilter(filter);
   const {
@@ -89,7 +93,11 @@ export function ConversationListPane({
       (!typePred || typePred(t)) &&
       (!bucketPred || bucketPred(t)) &&
       promoVisible(t, filter, backendFilter); // promo only under "Promotions"
-    const base = items.filter(keep);
+    // Order by last-message time (the mapped `updatedAt`), so metadata bumps
+    // (bookmark/silent/read) never reorder the list — only pin does, via pins.
+    const base = items
+      .filter(keep)
+      .sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt));
     // Pinned row only on the normal bucket (chip "all"); honor the rail type.
     if (filter !== "all") return base;
     const pins = (pinned ?? []).filter(

@@ -9,25 +9,8 @@ import { useMentionsInbox } from "@/lib/api/messages";
 import { useChatThreads } from "@/lib/api/threads";
 import { useSession } from "@/lib/api/account";
 import { threadTime } from "@/lib/format";
-import { otherParticipants, threadDisplayName } from "@/lib/identity";
+import { chatHref } from "@/lib/chat-href";
 import type { ThreadListItem } from "@/lib/types";
-
-/** Deep-link to a chat thread, mirroring ThreadCard's chat href construction. */
-function chatHref(t: ThreadListItem, currentUsername?: string): string {
-  const others = otherParticipants(t.participants, currentUsername);
-  const isGroup = t.isGroup ?? others.length >= 2;
-  const name =
-    isGroup && t.groupName
-      ? t.groupName
-      : threadDisplayName(t.participants, currentUsername);
-  const params = new URLSearchParams();
-  params.set("n", name);
-  params.set("t", t.topicId);
-  const addr = others[0]?.address;
-  if (addr && !isGroup) params.set("a", addr);
-  if (isGroup) params.set("g", "1");
-  return `/chat/${t.id}?${params.toString()}`;
-}
 
 /**
  * Mentions inbox (native: the @ inbox) — a bottom sheet listing messages where

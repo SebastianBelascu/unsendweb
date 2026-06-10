@@ -1,3 +1,5 @@
+import { create } from "zustand";
+
 /*
   Tiny localStorage-backed draft store so an unsent reply/compose survives a
   refresh or navigation. Keyed by thread id (conversation) or a compose key.
@@ -7,6 +9,10 @@
   - email META — subject + cc + bcc overrides (DraftEmailMeta). The `to` list is
     the thread default and isn't persisted; replyTo + attachment blobs are not
     persisted (the web has no local blob store to rehydrate uploads from).
+
+  A small zustand mirror (`useDraftStore`) makes the TEXT reactive so the inbox
+  rows can show a "Draft" preview (native ThreadRowView), since localStorage on
+  its own doesn't notify React.
 */
 
 const PREFIX = "unsend.web.draft.";
@@ -23,6 +29,50 @@ export interface DraftMeta {
   bcc?: DraftRecipient[];
 }
 
+interface DraftStore {
+  /** threadId/compose-key -> current draft text. */
+  texts: Record<string, string>;
+  hydrated: boolean;
+  hydrate: () => void;
+  put: (key: string, text: string) => void;
+  drop: (key: string) => void;
+}
+
+/** Reactive mirror of the persisted draft TEXT (for inbox "Draft" previews). */
+export const useDraftStore = create<DraftStore>((set, get) => ({
+  texts: {},
+  hydrated: false,
+  hydrate: () => {
+    if (get().hydrated || typeof localStorage === "undefined") return;
+    const texts: Record<string, string> = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(PREFIX)) {
+        const v = localStorage.getItem(k);
+        if (v) texts[k.slice(PREFIX.length)] = v;
+      }
+    }
+    set({ texts, hydrated: true });
+  },
+  put: (key, text) =>
+    set((s) => {
+      if (s.texts[key] === text) return s;
+      return { texts: { ...s.texts, [key]: text } };
+    }),
+  drop: (key) =>
+    set((s) => {
+      if (!(key in s.texts)) return s;
+      const next = { ...s.texts };
+      delete next[key];
+      return { texts: next };
+    }),
+}));
+
+/** Subscribe to a thread's draft text (trimmed; empty string when none). */
+export function useDraftText(key?: string): string {
+  return useDraftStore((s) => (key ? s.texts[key] ?? "" : ""));
+}
+
 export function loadDraft(key?: string): string {
   if (!key || typeof localStorage === "undefined") return "";
   return localStorage.getItem(PREFIX + key) ?? "";
@@ -30,13 +80,19 @@ export function loadDraft(key?: string): string {
 
 export function saveDraft(key: string, value: string): void {
   if (typeof localStorage === "undefined") return;
-  if (value) localStorage.setItem(PREFIX + key, value);
-  else localStorage.removeItem(PREFIX + key);
+  if (value) {
+    localStorage.setItem(PREFIX + key, value);
+    useDraftStore.getState().put(key, value);
+  } else {
+    localStorage.removeItem(PREFIX + key);
+    useDraftStore.getState().drop(key);
+  }
 }
 
 export function clearDraft(key?: string): void {
-  if (key && typeof localStorage !== "undefined")
-    localStorage.removeItem(PREFIX + key);
+  if (!key) return;
+  if (typeof localStorage !== "undefined") localStorage.removeItem(PREFIX + key);
+  useDraftStore.getState().drop(key);
 }
 
 function metaIsEmpty(m: DraftMeta): boolean {

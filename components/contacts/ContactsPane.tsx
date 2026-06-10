@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Check,
   Loader2,
@@ -14,9 +15,11 @@ import {
 import { UserAvatar } from "@/components/mail/UserAvatar";
 import { SearchField } from "@/components/ui/SearchField";
 import { useContacts, type Contact } from "@/lib/api/contacts";
+import { useChatThreads } from "@/lib/api/threads";
 import { useComposeModal } from "@/lib/compose-modal";
 import { useSession } from "@/lib/api/account";
 import { placeCall } from "@/lib/calls/controller";
+import { chatHref, findDmThread } from "@/lib/chat-href";
 import { localPart, MAIL_DOMAIN } from "@/lib/identity";
 import { useLastSeen, useOnline, usePresenceFor } from "@/lib/realtime/hooks";
 import { useRealtime } from "@/lib/realtime/store";
@@ -137,6 +140,8 @@ function ContactRow({
 export function ContactsPane() {
   const { data, isLoading, isError, refetch } = useContacts();
   const { data: me } = useSession();
+  const { data: chats } = useChatThreads();
+  const router = useRouter();
   const myUserId = me?.userId;
   const [query, setQuery] = useState("");
   const [subscreen, setSubscreen] = useState<Subscreen>("chat");
@@ -199,6 +204,13 @@ export function ContactsPane() {
   }, [pool, query, online, lastSeen, subscreen]);
 
   function startChat(c: Contact) {
+    // Native FriendsView: open the existing 1:1 chat if there is one; only fall
+    // back to chat-compose when no thread exists yet.
+    const dm = findDmThread(chats, c.address);
+    if (dm) {
+      router.push(chatHref(dm, me?.username));
+      return;
+    }
     openCompose({ isEmail: false, to: c.address });
   }
   function startEmail(c: Contact) {

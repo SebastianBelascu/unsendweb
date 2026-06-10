@@ -37,7 +37,7 @@ Legend: ✅ done · 🟡 partial · ❌ missing · ⛔ backend-blocked / N-A on 
 | **Promotional inbox** (separate Promo subscreen + bucket) | ❌ | P2 |
 | Long-press **thread context menu** (pin/bookmark/spam/delete per-context) | ✅ (⋮ menu now touch-reachable: always-visible on mobile, hover on desktop) | — |
 | Multi-select bulk actions (read/spam/delete/restore) | ✅ | — |
-| Draft label / typing-in-row indicators | ✅ (typing-in-row: shows "typing…" / "Name is typing…" in groups, accent-colored) | — |
+| Draft label / typing-in-row indicators | ✅ typing-in-row ("typing…" / "Name is typing…") + **"Draft:" preview** in the row when an unsent draft exists (native ThreadRowView), reactive via `useDraftStore` | — |
 | **Mentions inbox** (@ messages where you're tagged) | ✅ (`@` header button → `MentionsSheet`, deep-links into the chat) | — |
 
 ### Contacts (Friends)
