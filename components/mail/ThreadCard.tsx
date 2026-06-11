@@ -192,8 +192,11 @@ export function ThreadCard({
   // Fixed height so every row is identical, whether it's a 1-line chat preview
   // or a 2-line email (subject + body). Content is single-line (truncated) so it
   // always fits; items-center keeps it vertically centered.
-  const rowClass =
-    "flex h-[84px] items-center gap-3 border-b border-line px-4 pr-11 text-left transition-colors";
+  const rowClass = cn(
+    "flex items-center gap-3 border-b border-line px-4 pr-11 text-left transition-colors",
+    // Taller rows only for email — fewer per screen, easier to read. Chat stays compact.
+    thread.isEmail ? "h-[100px]" : "h-[84px]",
+  );
 
   return (
     <div className="group relative">
