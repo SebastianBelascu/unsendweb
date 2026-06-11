@@ -195,7 +195,7 @@ export function ThreadCard({
   const rowClass = cn(
     "flex items-center gap-3 border-b border-line px-4 pr-11 text-left transition-colors",
     // Taller rows only for email — fewer per screen, easier to read. Chat stays compact.
-    thread.isEmail ? "h-[100px]" : "h-[84px]",
+    thread.isEmail ? "h-[120px]" : "h-[84px]",
   );
 
   return (
