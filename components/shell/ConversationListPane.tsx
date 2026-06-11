@@ -274,6 +274,7 @@ export function ConversationListPane({
               filter={backendFilter}
               currentUsername={me?.username}
               activeId={activeId}
+              tall={section === "emails"}
             />
             <div ref={sentinel} className="h-8" />
             {isFetchingNextPage && (
