@@ -39,8 +39,24 @@ function matchesFilter(
   return !missed && !outgoing; // incoming
 }
 
+/** Free-text match across the call's people (name/username/address) + subject. */
+function matchesQuery(c: CallRecord, q: string): boolean {
+  if (!q) return true;
+  const hay = [
+    c.subject,
+    ...c.participants.flatMap((p) => [p.name, p.username, p.address]),
+  ];
+  return hay.some((s) => (s ?? "").toLowerCase().includes(q));
+}
+
 /** Recent calls (history). Tapping a 1:1 entry calls that person back. */
-export function CallsList({ filter = "all" }: { filter?: CallFilter }) {
+export function CallsList({
+  filter = "all",
+  query = "",
+}: {
+  filter?: CallFilter;
+  query?: string;
+}) {
   const { data: me } = useSession();
   const status = useCall((s) => s.status);
   const busy = status !== "idle";
@@ -50,10 +66,12 @@ export function CallsList({ filter = "all" }: { filter?: CallFilter }) {
     refetchInterval: 15_000,
   });
 
-  const calls = useMemo(
-    () => (data ?? []).filter((c) => matchesFilter(c, me?.userId, filter)),
-    [data, me?.userId, filter],
-  );
+  const calls = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return (data ?? []).filter(
+      (c) => matchesFilter(c, me?.userId, filter) && matchesQuery(c, q),
+    );
+  }, [data, me?.userId, filter, query]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -80,7 +98,11 @@ export function CallsList({ filter = "all" }: { filter?: CallFilter }) {
         ) : calls.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 p-10 text-center text-subhead text-muted">
             <Phone className="h-8 w-8 text-faint" />
-            <p>{filter === "all" ? "No recent calls yet." : "No calls here."}</p>
+            <p>
+              {filter === "all" && !query.trim()
+                ? "No recent calls yet."
+                : "No calls here."}
+            </p>
           </div>
         ) : (
           <ul className="flex flex-col">
@@ -163,28 +185,26 @@ function CallRow({
         type="button"
         disabled={disabled || call.isGroup}
         onClick={() => onCallBack(name, address)}
-        className="flex w-full items-center gap-3 border-b border-line px-4 py-3 text-left transition-colors hover:bg-surface disabled:cursor-default disabled:hover:bg-transparent"
+        className="flex h-[120px] w-full items-center gap-4 border-b border-line px-4 text-left transition-colors hover:bg-surface disabled:cursor-default disabled:hover:bg-transparent"
       >
         <UserAvatar
           name={name}
           address={address}
           isEmail={false}
-          size={48}
+          size={64}
           showBadge={false}
         />
         <div className="min-w-0 flex-1">
           <div
             className={cn(
-              "truncate text-callout font-medium",
+              "truncate text-headline font-medium",
               missed ? "text-[#ef4444]" : "text-ink",
             )}
           >
             {name}
           </div>
-          <div className="mt-0.5 flex items-center gap-1.5 text-subhead text-faint">
-            <DirIcon
-              className={cn("h-3.5 w-3.5", missed ? "text-[#ef4444]" : "")}
-            />
+          <div className="mt-1.5 flex items-center gap-1.5 text-body text-faint">
+            <DirIcon className={cn("h-4 w-4", missed ? "text-[#ef4444]" : "")} />
             <span>{dirLabel}</span>
             {when && <span>· {threadTime(when)}</span>}
           </div>

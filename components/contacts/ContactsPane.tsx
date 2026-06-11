@@ -83,27 +83,27 @@ function ContactRow({
           ? lastSeenLabel(lastSeen)
           : `@${username}`;
   return (
-    <div className="flex w-full items-center gap-3 px-4 py-2.5 transition-colors hover:bg-surface-2">
+    <div className="flex h-[120px] w-full items-center gap-4 px-4 transition-colors hover:bg-surface-2">
       <button
         type="button"
         onClick={onOpen}
-        className="flex min-w-0 flex-1 items-center gap-3 text-left"
+        className="flex min-w-0 flex-1 items-center gap-4 text-left"
       >
         <UserAvatar
           name={name}
           address={c.address}
-          size={48}
+          size={64}
           isEmail={!platform}
           online={platform && online}
           showBadge={false}
         />
         <div className="min-w-0 flex-1">
-          <div className="truncate text-body font-semibold text-ink-strong">
+          <div className="truncate text-headline font-semibold text-ink-strong">
             {name}
           </div>
           <div
             className={cn(
-              "truncate text-footnote",
+              "mt-1.5 truncate text-body",
               platform && online ? "text-email" : "text-faint",
             )}
           >

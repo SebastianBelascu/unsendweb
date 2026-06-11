@@ -1,14 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, PenSquare, Search, X } from "lucide-react";
+import { Loader2, PenSquare, X } from "lucide-react";
 import { ThreadsList } from "@/components/mail/ThreadsList";
 import { CallsList } from "@/components/calls/CallsList";
 import { ContactsPane } from "@/components/contacts/ContactsPane";
 import { SearchPeople } from "./SearchPeople";
 import { SyncStatus } from "@/components/mail/SyncStatus";
 import { SearchField } from "@/components/ui/SearchField";
-import { IconButton } from "@/components/ui/IconButton";
 import { Chip } from "@/components/ui/Chip";
 import { usePinnedThreads, useThreadsInfinite } from "@/lib/api/threads";
 import { useSession } from "@/lib/api/account";
@@ -44,7 +43,6 @@ export function ConversationListPane({
   activeId?: string;
 }) {
   const [query, setQuery] = useState("");
-  const [searchOpen, setSearchOpen] = useState(false);
   const [callFilter, setCallFilter] = useState<CallFilter>("all");
   const { data: me } = useSession();
 
@@ -104,6 +102,7 @@ export function ConversationListPane({
     if (!q) return all;
     return all.filter(
       (t) =>
+        (t.groupName ?? "").toLowerCase().includes(q) ||
         (t.subject ?? "").toLowerCase().includes(q) ||
         t.preview.toLowerCase().includes(q) ||
         t.participants.some(
@@ -130,24 +129,20 @@ export function ConversationListPane({
   // Chats rail → chat compose; All/Emails → email compose.
   const composeEmail = section !== "chats";
 
-  function toggleSearch() {
-    setSearchOpen((open) => {
-      if (open) {
-        // Closing the search panel clears the query AND the filter — the chips
-        // live inside this panel, so a hidden active filter would be confusing.
-        setQuery("");
-        onFilter("all");
-      }
-      return !open;
-    });
-  }
-
-  // The calls section has its own list + its own filter chips (no search).
+  // Calls section: native parity — a persistent search bar pinned under the
+  // title (like iOS `.searchable`), with the filter chips always visible below.
   if (section === "calls") {
     return (
       <div className="flex h-full flex-col">
         <header className="flex flex-col gap-3 border-b border-line px-4 pb-3 pt-4">
-          <h1 className="text-title font-bold text-ink-strong">Calls</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-title font-bold text-ink-strong">Calls</h1>
+          </div>
+          <SearchField
+            value={query}
+            onChange={setQuery}
+            placeholder="Search by name, username or phone"
+          />
           <div className="-mx-1 flex flex-wrap gap-1.5 px-1 pb-0.5">
             {CALL_FILTERS.map((c) => {
               const on = callFilter === c.key;
@@ -168,7 +163,7 @@ export function ConversationListPane({
             })}
           </div>
         </header>
-        <CallsList filter={callFilter} />
+        <CallsList filter={callFilter} query={query} />
       </div>
     );
   }
@@ -185,18 +180,6 @@ export function ConversationListPane({
           <h1 className="text-title font-bold text-ink-strong">{title}</h1>
           <SyncStatus />
           <div className="ml-auto flex items-center gap-1">
-            <IconButton
-              label={searchOpen ? "Close search" : "Search"}
-              variant="surface"
-              size={38}
-              onClick={toggleSearch}
-            >
-              {searchOpen ? (
-                <X className="h-4 w-4" />
-              ) : (
-                <Search className="h-4 w-4" />
-              )}
-            </IconButton>
             <button
               type="button"
               onClick={() => openCompose({ isEmail: composeEmail })}
@@ -208,35 +191,32 @@ export function ConversationListPane({
             </button>
           </div>
         </div>
-        {searchOpen && (
-          <>
-            <SearchField
-              value={query}
-              onChange={setQuery}
-              placeholder="Search"
-              autoFocus
-            />
-            <div className="-mx-1 flex flex-wrap gap-1.5 px-1 pb-0.5">
-              {sectionFilters.map((c) => {
-                const on = effectiveFilter === c.key;
-                return (
-                  <Chip
-                    key={c.key}
-                    active={on}
-                    onClick={() => onFilter(on ? "all" : c.key)}
-                    className={cn(
-                      "gap-1 px-2",
-                      on && "bg-accent text-white hover:opacity-90",
-                    )}
-                  >
-                    {c.label}
-                    {on && <X className="-mr-0.5 h-3.5 w-3.5" />}
-                  </Chip>
-                );
-              })}
-            </div>
-          </>
-        )}
+        {/* Native parity: a persistent search bar pinned under the title (iOS
+            `.searchable`), with the filter chips always visible below it. */}
+        <SearchField
+          value={query}
+          onChange={setQuery}
+          placeholder="Search"
+        />
+        <div className="-mx-1 flex flex-wrap gap-1.5 px-1 pb-0.5">
+          {sectionFilters.map((c) => {
+            const on = effectiveFilter === c.key;
+            return (
+              <Chip
+                key={c.key}
+                active={on}
+                onClick={() => onFilter(on ? "all" : c.key)}
+                className={cn(
+                  "gap-1 px-2",
+                  on && "bg-accent text-white hover:opacity-90",
+                )}
+              >
+                {c.label}
+                {on && <X className="-mr-0.5 h-3.5 w-3.5" />}
+              </Chip>
+            );
+          })}
+        </div>
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto">

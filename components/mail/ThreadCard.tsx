@@ -90,7 +90,7 @@ export function ThreadCard({
           name={others[0]?.name ?? name}
           people={others.map((o) => ({ name: o.name, address: o.address }))}
           isEmail={thread.isEmail}
-          size={52}
+          size={64}
           online={online}
         />
       ) : favicon ? (
@@ -99,7 +99,7 @@ export function ThreadCard({
           seed={others[0]?.address}
           favicon={favicon}
           isEmail={thread.isEmail}
-          size={52}
+          size={64}
           online={online}
         />
       ) : (
@@ -107,7 +107,7 @@ export function ThreadCard({
           name={others[0]?.name ?? name}
           address={others[0]?.address}
           isEmail={thread.isEmail}
-          size={52}
+          size={64}
           online={online}
         />
       )}
@@ -116,7 +116,7 @@ export function ThreadCard({
         <div className="flex items-baseline gap-2">
           <span
             className={cn(
-              "truncate text-callout text-ink-strong",
+              "truncate text-headline text-ink-strong",
               unread ? "font-bold" : "font-medium text-ink",
             )}
           >
@@ -124,7 +124,7 @@ export function ThreadCard({
           </span>
           <span
             className={cn(
-              "ml-auto shrink-0 text-caption",
+              "ml-auto shrink-0 text-footnote",
               unread ? "font-semibold text-ink-strong" : "text-faint",
             )}
           >
@@ -135,21 +135,21 @@ export function ThreadCard({
         {thread.isEmail && (
           <div
             className={cn(
-              "mt-0.5 flex items-center gap-1.5 text-subhead",
+              "mt-1.5 flex items-center gap-1.5 text-body",
               unread ? "font-semibold text-ink" : "text-muted",
             )}
           >
             {thread.attachmentsCount ? (
-              <Paperclip className="h-3.5 w-3.5 shrink-0 text-faint" />
+              <Paperclip className="h-4 w-4 shrink-0 text-faint" />
             ) : null}
             <span className="truncate">{thread.subject || "(no subject)"}</span>
           </div>
         )}
 
-        <div className="mt-0.5 flex items-center gap-2">
+        <div className="mt-1.5 flex items-center gap-2">
           <span
             className={cn(
-              "min-w-0 flex-1 truncate text-subhead",
+              "min-w-0 flex-1 truncate text-body",
               typing.length
                 ? "font-medium text-accent"
                 : unread
@@ -173,11 +173,11 @@ export function ThreadCard({
             )}
           </span>
           <span className="flex shrink-0 items-center gap-1.5">
-            {thread.isSilent && <BellOff className="h-3.5 w-3.5 text-yellow" />}
+            {thread.isSilent && <BellOff className="h-4 w-4 text-yellow" />}
             {thread.isPinned ? (
-              <Pin className="h-3.5 w-3.5 rotate-45 text-ink-strong" />
+              <Pin className="h-4 w-4 rotate-45 text-ink-strong" />
             ) : thread.isBookmarked ? (
-              <Bookmark className="h-3.5 w-3.5 fill-current text-faint" />
+              <Bookmark className="h-4 w-4 fill-current text-faint" />
             ) : null}
             {thread.isDraft && (
               <span className="text-caption font-bold text-accent">draft</span>
@@ -194,7 +194,7 @@ export function ThreadCard({
   // always fits; items-center keeps it vertically centered.
   // Fixed, taller rows for every conversation — fewer per screen, easier to read.
   const rowClass =
-    "flex h-[120px] items-center gap-3 border-b border-line px-4 pr-11 text-left transition-colors";
+    "flex h-[120px] items-center gap-4 border-b border-line px-4 pr-11 text-left transition-colors";
 
   return (
     <div className="group relative">
