@@ -22,7 +22,6 @@ export function ThreadCard({
   selecting = false,
   selected = false,
   onToggleSelect,
-  tall = false,
 }: {
   thread: ThreadListItem;
   filter?: MailFilter;
@@ -31,7 +30,6 @@ export function ThreadCard({
   selecting?: boolean;
   selected?: boolean;
   onToggleSelect?: () => void;
-  tall?: boolean;
 }) {
   const others = otherParticipants(thread.participants, currentUsername);
   const unread = thread.unread;
@@ -194,12 +192,9 @@ export function ThreadCard({
   // Fixed height so every row is identical, whether it's a 1-line chat preview
   // or a 2-line email (subject + body). Content is single-line (truncated) so it
   // always fits; items-center keeps it vertically centered.
-  const rowClass = cn(
-    "flex items-center gap-3 border-b border-line px-4 pr-11 text-left transition-colors",
-    // Taller rows only in the dedicated Emails list — fewer per screen, easier to
-    // read. The mixed "All" list (and chats) stays compact so heights don't jump.
-    tall ? "h-[120px]" : "h-[84px]",
-  );
+  // Fixed, taller rows for every conversation — fewer per screen, easier to read.
+  const rowClass =
+    "flex h-[120px] items-center gap-3 border-b border-line px-4 pr-11 text-left transition-colors";
 
   return (
     <div className="group relative">
