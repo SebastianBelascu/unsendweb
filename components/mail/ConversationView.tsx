@@ -540,6 +540,10 @@ function Bubble({
   // edited · private, joined with " • ". Read/delivered is handled separately by
   // StatusTicks; "new"/"before added" need fields the web doesn't carry.
   const me = (selfAddress ?? "").toLowerCase();
+  // Native colours the quote pill + connector by the QUOTED author: the reply
+  // accent (purple/green) when you're quoting yourself, neutral grey otherwise.
+  const repliedOwn =
+    Boolean(replied) && (replied?.from.address ?? "").toLowerCase() === me;
   const bcc = message.bcc ?? [];
   const bccContext =
     isEmail &&
@@ -616,47 +620,53 @@ function Bubble({
           </span>
         )}
 
-        {replied && !deleted && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onJumpReply?.();
-            }}
+        {/* Reply → quoted message, native parity: a border-only pill above the
+            bubble, linked to it by a [ / ] bracket connector hugging the shared
+            outer edge. Pill + bracket share one colour — the quoted author's
+            accent (purple/green) when you quote yourself, neutral grey otherwise. */}
+        <div
+          className={cn(
+            "flex items-stretch",
+            isOwn ? "flex-row" : "flex-row-reverse",
+          )}
+        >
+          <div
             className={cn(
-              "mb-0.5 flex max-w-[220px] items-stretch gap-1.5 overflow-hidden rounded-[10px] py-1.5 pr-2.5 text-left transition-opacity hover:opacity-80",
-              isOwn ? "self-end bg-white/15" : "self-start bg-surface-2",
+              "flex min-w-0 flex-col",
+              isOwn ? "items-end" : "items-start",
             )}
           >
-            <span
-              className={cn(
-                "w-[3px] shrink-0 rounded-full",
-                isOwn ? "bg-white/70" : "bg-line-strong",
-              )}
-            />
-            <div className="min-w-0 py-px">
-              <div
+            {replied && !deleted && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onJumpReply?.();
+                }}
                 className={cn(
-                  "truncate text-micro font-semibold leading-tight",
-                  isOwn ? "text-white" : "text-faint",
+                  "mb-1 flex max-w-[220px] overflow-hidden rounded-2xl border bg-transparent px-2.5 py-1.5 text-left transition-opacity hover:opacity-70",
+                  repliedOwn
+                    ? isEmail
+                      ? "border-email-light/60"
+                      : "border-chat-light/60"
+                    : "border-[#888888]/60",
                 )}
               >
-                {replied.from.name}
-              </div>
-              <div
-                className={cn(
-                  "truncate text-caption leading-tight",
-                  isOwn ? "text-white/70" : "text-muted",
-                )}
-              >
-                {replied.text?.trim() ||
-                  (replied.attachments?.length ? "📎 attachment" : "…")}
-              </div>
-            </div>
-          </button>
-        )}
+                <div className="min-w-0">
+                  {(isGroup || isEmail) && (
+                    <div className="truncate text-caption font-bold leading-tight text-white/60">
+                      {replied.from.name}
+                    </div>
+                  )}
+                  <div className="truncate text-subhead leading-tight text-white/55">
+                    {replied.text?.trim() ||
+                      (replied.attachments?.length ? "📎 attachment" : "…")}
+                  </div>
+                </div>
+              </button>
+            )}
 
-        <div className="relative flex items-center gap-1">
+            <div className="relative flex items-center gap-1">
           {/* Hover controls — only for real (sent) messages, hidden in select mode. */}
           {actionable && !selectMode && (
             <div
@@ -796,6 +806,26 @@ function Bubble({
               pos={menuPos}
               onAction={onAction}
               onClose={onToggleMenu}
+            />
+          )}
+            </div>
+          </div>
+          {/* Bracket connector linking the quote pill to the bubble — the
+              native [ / ] that ties a reply to what it answers. */}
+          {replied && !deleted && (
+            <span
+              aria-hidden
+              className={cn(
+                "my-3 w-3 shrink-0 self-stretch border-y-2",
+                isOwn
+                  ? "rounded-r-[10px] border-r-2"
+                  : "rounded-l-[10px] border-l-2",
+                repliedOwn
+                  ? isEmail
+                    ? "border-email-light/60"
+                    : "border-chat-light/60"
+                  : "border-[#888888]/60",
+              )}
             />
           )}
         </div>
