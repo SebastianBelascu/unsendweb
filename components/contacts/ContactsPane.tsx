@@ -192,14 +192,18 @@ export function ContactsPane() {
   const lastSeen = useRealtime((s) => s.lastSeen);
   const contacts = useMemo(() => {
     const q = query.trim().toLowerCase();
+    // When searching, look across ALL contacts (chat + email together), not just
+    // the current subscreen's pool — so a search surfaces both Unsend users and
+    // email contacts. With no query, stay scoped to the active subscreen.
+    const source = q ? (data ?? []) : pool;
     const filtered = q
-      ? pool.filter(
+      ? source.filter(
           (c) =>
             (c.name || '').toLowerCase().includes(q) ||
             c.address.toLowerCase().includes(q) ||
             (c.phone || '').includes(q),
         )
-      : pool;
+      : source;
     // Email friends sort alphabetically; chat/call sort by activity (online →
     // most-recent last-seen → name), mirroring native FriendsView.
     if (subscreen === 'email') {
@@ -223,7 +227,7 @@ export function ContactsPane() {
       }
       return (a.name || a.address).localeCompare(b.name || b.address);
     });
-  }, [pool, query, online, lastSeen, subscreen]);
+  }, [pool, data, query, online, lastSeen, subscreen]);
 
   function startChat(c: Contact) {
     // Native FriendsView: open the existing 1:1 chat if there is one; only fall
@@ -351,19 +355,28 @@ export function ContactsPane() {
           </div>
         ) : (
           <ul className="flex flex-col">
-            {contacts.map((c) => (
-              <li key={c.address}>
-                <ContactRow
-                  c={c}
-                  variant={subscreen}
-                  onOpen={() =>
-                    subscreen === 'email' ? startEmail(c) : startChat(c)
-                  }
-                  onAudio={() => callContact(c, false)}
-                  onVideo={() => callContact(c, true)}
-                />
-              </li>
-            ))}
+            {contacts.map((c) => {
+              // While searching (mixed chat + email results), render each row by
+              // its OWN type: Unsend addresses → chat, external → email.
+              const rowVariant: Subscreen = query.trim()
+                ? c.address.toLowerCase().includes(MAIL_DOMAIN)
+                  ? 'chat'
+                  : 'email'
+                : subscreen;
+              return (
+                <li key={c.address}>
+                  <ContactRow
+                    c={c}
+                    variant={rowVariant}
+                    onOpen={() =>
+                      rowVariant === 'email' ? startEmail(c) : startChat(c)
+                    }
+                    onAudio={() => callContact(c, false)}
+                    onVideo={() => callContact(c, true)}
+                  />
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>

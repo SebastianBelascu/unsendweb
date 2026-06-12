@@ -574,6 +574,12 @@ function Bubble({
   // accent (purple/green) when you're quoting yourself, neutral grey otherwise.
   const repliedOwn =
     Boolean(replied) && (replied?.from.address ?? '').toLowerCase() === me;
+  // When the quoted message is a photo/video, the reply preview shows its
+  // thumbnail (not "📎 attachment" text).
+  const repliedImg = replied?.attachments?.find((a) => {
+    const k = fileKind(a);
+    return (k === 'image' || k === 'video') && (a.url || a.posterUrl);
+  });
   // White, subtle — a thin reply tail (hex, not CSS var: SVG stroke attributes
   // don't reliably resolve var()).
   const connStroke = '#ffffff';
@@ -595,26 +601,20 @@ function Bubble({
     }
     const wrap = replyWrapRef.current;
     const quote = quoteRef.current;
-    const bub = bubbleRef.current;
-    if (!wrap || !quote || !bub) return;
+    if (!wrap || !quote) return;
     const measure = () => {
       const w = wrap.getBoundingClientRect();
       const q = quote.getBoundingClientRect();
-      const b = bub.getBoundingClientRect();
-      const av = avatarRef.current?.getBoundingClientRect();
-      const r = 11; // corner radius (a touch rounder — Apple-style)
-      const qMidY = q.top - w.top + q.height / 2;
-      const sx =
-        !isOwn && av
-          ? av.left - w.left + av.width / 2
-          : (isOwn ? b.right : b.left) - w.left;
-      const sy =
-        !isOwn && av
-          ? av.top - w.top + av.height / 2
-          : b.top - w.top + b.height / 2;
-      const sweep = isOwn ? -1 : 1; // corner turns toward the quote
-      const endX = sx + sweep * (r + 18); // just a SHORT stub past the corner
-      const d = `M ${sx} ${sy} L ${sx} ${qMidY + r} Q ${sx} ${qMidY} ${sx + sweep * r} ${qMidY} L ${endX} ${qMidY}`;
+      const r = 14;
+      // iMessage "reply thread" hook: a curved tail that HANGS from the quote's
+      // bottom-outer corner and curls toward the reply — it comes FROM the
+      // quote (the opposite direction). Own reply → quote on the LEFT, curls
+      // down-right; inbound reply → quote on the RIGHT, curls down-left.
+      const ox = (isOwn ? q.left : q.right) - w.left;
+      const oy = q.bottom - w.top;
+      const sweep = isOwn ? 1 : -1;
+      const down = 10; // how far it drops before curling (kept short — sits high)
+      const d = `M ${ox} ${oy} L ${ox} ${oy + down} Q ${ox} ${oy + down + r} ${ox + sweep * r} ${oy + down + r}`;
       setConnPath({ w: w.width, h: w.height, d });
     };
     measure();
@@ -675,7 +675,7 @@ function Bubble({
           {connPath && (
             <svg
               aria-hidden
-              className="pointer-events-none absolute left-0 top-0 z-[1]"
+              className="pointer-events-none absolute left-0 top-0 z-10"
               width={connPath.w}
               height={connPath.h}
               style={{ overflow: 'visible' }}
@@ -684,8 +684,8 @@ function Bubble({
                 d={connPath.d}
                 fill="none"
                 stroke={connStroke}
-                strokeOpacity={0.4}
-                strokeWidth={1.5}
+                strokeOpacity={0.5}
+                strokeWidth={2.5}
                 strokeLinecap="round"
               />
             </svg>
@@ -702,7 +702,7 @@ function Bubble({
                   onJumpReply?.();
                 }}
                 className={cn(
-                  'relative z-10 mb-1 flex max-w-[220px] overflow-hidden rounded-2xl border bg-canvas px-2.5 py-1.5 text-left transition-opacity hover:opacity-70',
+                  'mb-1 flex max-w-[220px] overflow-hidden rounded-2xl border bg-transparent px-2.5 py-1.5 text-left transition-opacity hover:opacity-70',
                   repliedOwn
                     ? isEmail
                       ? 'border-email-light/60'
@@ -710,22 +710,34 @@ function Bubble({
                     : 'border-[#888888]/60',
                 )}
               >
-                <div className="min-w-0">
-                  {(isGroup || isEmail) && (
-                    <div className="truncate text-caption font-bold leading-tight text-white/60">
-                      {replied.from.name}
-                    </div>
+                <div className="flex items-center gap-2">
+                  {repliedImg && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={repliedImg.posterUrl || repliedImg.url}
+                      alt=""
+                      className="h-9 w-9 shrink-0 rounded-md object-cover"
+                    />
                   )}
-                  <div
-                    className={cn(
-                      // The quoted message text in the accent (purple chat / green
-                      // email) so the reply preview stands out — the outline stays.
-                      'truncate text-subhead leading-tight',
-                      isEmail ? 'text-email-light' : 'text-chat-light',
+                  <div className="min-w-0">
+                    {(isGroup || isEmail) && (
+                      <div className="truncate text-caption font-bold leading-tight text-white/60">
+                        {replied.from.name}
+                      </div>
                     )}
-                  >
-                    {replied.text?.trim() ||
-                      (replied.attachments?.length ? '📎 attachment' : '…')}
+                    {(replied.text?.trim() || !repliedImg) && (
+                      <div
+                        className={cn(
+                          // Quoted text in the accent (purple chat / green email)
+                          // so the preview stands out — the outline stays.
+                          'truncate text-subhead leading-tight',
+                          isEmail ? 'text-email-light' : 'text-chat-light',
+                        )}
+                      >
+                        {replied.text?.trim() ||
+                          (replied.attachments?.length ? '📎 attachment' : '…')}
+                      </div>
+                    )}
                   </div>
                 </div>
               </button>
@@ -733,7 +745,7 @@ function Bubble({
           )}
           <div
             className={cn(
-              'relative z-10 flex items-end gap-2',
+              'flex items-end gap-2',
               isOwn ? 'flex-row-reverse' : 'flex-row',
             )}
           >
