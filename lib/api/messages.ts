@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiSend } from "./http";
 import { mapMessage } from "./mappers";
-import { bumpThread } from "../realtime/threadCache";
+import { bumpThread, insertNewThreadRow } from "../realtime/threadCache";
 import type { MessagesResponse } from "./backend-types";
 import type { AttachmentDto } from "./attachments";
 import type { MailMessage } from "../types";
@@ -229,18 +229,43 @@ export function useSendMessage() {
       });
     },
     onSuccess: (data, vars) => {
-      const r = (data ?? {}) as { threadId?: string; topicId?: string };
-      const threadId = r.threadId ?? vars.threadId;
+      const r = (data ?? {}) as {
+        threadId?: string;
+        _id?: string;
+        topicId?: string;
+      };
+      const threadId = r.threadId ?? r._id ?? vars.threadId;
+      const topicId = r.topicId ?? vars.topicId;
       if (threadId) qc.invalidateQueries({ queryKey: ["messages", threadId] });
       // Re-bump with the server's ids (covers sends where vars had no thread id
       // yet). Only refetch the lists for a brand-new conversation (row absent).
       const found = bumpThread(qc, {
         threadId,
-        topicId: r.topicId ?? vars.topicId,
+        topicId,
         preview: vars.text,
         outbound: true,
       });
       if (!found) {
+        // Brand-new conversation (compose's first send): drop a correct row in
+        // at the top NOW so the inbox updates instantly, then refetch to heal.
+        if (threadId || topicId) {
+          insertNewThreadRow(qc, {
+            id: threadId ?? topicId!,
+            topicId: topicId ?? threadId!,
+            subject: vars.isEmail ? vars.subject : undefined,
+            participants: (vars.toList ?? []).map((p) => ({
+              name: p.name || p.address,
+              address: p.address,
+            })),
+            preview:
+              vars.text || (vars.attachments?.length ? "📎 Attachment" : ""),
+            updatedAt: new Date().toISOString(),
+            isEmail: Boolean(vars.isEmail),
+            unread: false,
+            isGroup: Boolean(vars.isGroup),
+            groupName: !vars.isEmail && vars.subject ? vars.subject : undefined,
+          });
+        }
         qc.invalidateQueries({ queryKey: ["threads"] });
         qc.invalidateQueries({ queryKey: ["chatThreads"] });
       }

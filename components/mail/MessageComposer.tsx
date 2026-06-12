@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Plus, SendHorizontal, X } from "lucide-react";
 import {
   AttachPill,
-  AttachmentTray,
+  InputAttachments,
   VoiceRecorder,
   type ComposerAttachments,
 } from "./attachments";
@@ -61,6 +61,8 @@ export function MessageComposer({
   initialSubject = "",
   mentionParticipants = [],
   supportsEveryone = false,
+  compose = false,
+  onToggleType,
   onSubmit,
   onCancelEdit,
   onCancelReply,
@@ -77,6 +79,11 @@ export function MessageComposer({
   initialSubject?: string;
   mentionParticipants?: MentionParticipant[];
   supportsEveryone?: boolean;
+  /** Compose-new mode (empty window): the recipient panel opens by default and
+   *  a Chat/Email type toggle is shown. Mirrors native's ComposeView. */
+  compose?: boolean;
+  /** Shown only in compose mode — switches between chat and email. */
+  onToggleType?: (isEmail: boolean) => void;
   onSubmit: (
     text: string,
     recipients?: ComposerRecipients,
@@ -87,8 +94,12 @@ export function MessageComposer({
   emitTyping: (typing: boolean) => void;
 }) {
   const [draft, setDraft] = useState("");
-  const [infoOpen, setInfoOpen] = useState(false);
+  // Compose-new opens with the recipient panel already expanded (native parity).
+  const [infoOpen, setInfoOpen] = useState(compose);
   const [gifOpen, setGifOpen] = useState(false);
+  // Bumped on the Chat/Email toggle to pull focus back to "To" (the toggle
+  // button would otherwise hold it, forcing a second click to keep typing).
+  const [toFocusToken, setToFocusToken] = useState(0);
   // Recipient/subject overrides — null means "track the thread default".
   const [toOverride, setToOverride] = useState<Recipient[] | null>(null);
   const [ccOverride, setCcOverride] = useState<Recipient[] | null>(null);
@@ -153,9 +164,11 @@ export function MessageComposer({
   // (the open chat shows its last message); leaving re-surfaces it. Never updates
   // live while typing — saveDraft keeps localStorage current per keystroke.
   useEffect(() => {
+    // Compose has no inbox row to surface a "Draft" badge on — skip it.
+    if (compose) return;
     hideDraftRow(threadId);
     return () => flushDraftToRow(threadId);
-  }, [threadId]);
+  }, [threadId, compose]);
 
   // Auto-grow the textarea to fit its content up to a max height.
   useEffect(() => {
@@ -181,6 +194,9 @@ export function MessageComposer({
   // (WhatsApp-web). Desktop only — popping the keyboard on every open is jarring
   // on touch. Runs per thread open (the composer remounts via key={id}).
   useEffect(() => {
+    // Compose focuses the "To" field instead (the message comes after picking
+    // a recipient), so don't steal focus to the body here.
+    if (compose) return;
     if (
       typeof window === "undefined" ||
       !window.matchMedia("(min-width: 1024px)").matches
@@ -191,7 +207,7 @@ export function MessageComposer({
     el.focus({ preventScroll: true });
     const len = el.value.length;
     el.setSelectionRange(len, len);
-  }, []);
+  }, [compose]);
 
   // After inserting a mention we set the caret on the next paint (the textarea
   // is controlled, so we can't move the caret synchronously).
@@ -230,7 +246,10 @@ export function MessageComposer({
   const attachments = att.readyDtos();
   const canSend = editing
     ? draft.trim().length > 0
-    : (draft.trim().length > 0 || attachments.length > 0) && !att.uploading;
+    : (draft.trim().length > 0 || attachments.length > 0) &&
+      !att.uploading &&
+      // Compose-new can't send until at least one recipient is chosen.
+      (!compose || toR.length > 0);
 
   function onChange(v: string) {
     setDraft(v);
@@ -326,11 +345,44 @@ export function MessageComposer({
       {/* "+" info panel: recipients + cc/bcc + subject + attachment pills. */}
       {infoOpen && !editing && (
         <div className="slide-up border-b border-line">
+          {/* Compose-new: Chat/Email toggle (native ChatInfoInputs typeToggle). */}
+          {compose && onToggleType && (
+            <div className="flex items-center gap-1.5 px-6 pb-1 pt-3">
+              <button
+                type="button"
+                onClick={() => {
+                  onToggleType(false);
+                  setToFocusToken((t) => t + 1);
+                }}
+                className={cn(
+                  "rounded-full px-3 py-1 text-footnote font-semibold transition-colors",
+                  !isEmail ? "bg-chat text-white" : "text-muted hover:text-ink",
+                )}
+              >
+                Chat
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onToggleType(true);
+                  setToFocusToken((t) => t + 1);
+                }}
+                className={cn(
+                  "rounded-full px-3 py-1 text-footnote font-semibold transition-colors",
+                  isEmail ? "bg-email text-black" : "text-muted hover:text-ink",
+                )}
+              >
+                Email
+              </button>
+            </div>
+          )}
           <RecipientInput
             label="To"
             value={toR}
             onChange={setToOverride}
             allowFreeText={isEmail}
+            autoFocus={compose}
+            focusToken={compose ? toFocusToken : undefined}
           />
           {isEmail && !showCcBcc && (
             <button
@@ -357,15 +409,18 @@ export function MessageComposer({
               />
             </>
           )}
-          {isEmail && (
+          {/* Email → Subject. Compose chat with 2+ recipients → Group name
+              (native ChatInfoInputs: "group name:" row). Shares the subject
+              field, so the value survives the Chat/Email toggle. */}
+          {(isEmail || (compose && toR.length > 1)) && (
             <label className="flex items-center gap-3 border-b border-line px-6 py-2.5">
               <span className="w-12 shrink-0 text-footnote text-faint">
-                Subject
+                {isEmail ? "Subject" : "Group"}
               </span>
               <input
                 value={subj}
                 onChange={(e) => setSubjOverride(e.target.value)}
-                placeholder="Subject"
+                placeholder={isEmail ? "Subject" : "Group name (optional)"}
                 className="w-full bg-transparent text-body text-ink-strong outline-none placeholder:text-faint"
               />
             </label>
@@ -385,8 +440,6 @@ export function MessageComposer({
           </div>
         </div>
       )}
-
-      <AttachmentTray items={att.pending} onRemove={att.remove} />
 
       {showLinkPreview && previewUrl && (
         <LinkPreviewBar
@@ -431,7 +484,13 @@ export function MessageComposer({
             GIF
           </button>
         )}
-        <textarea
+        {/* The rounded input field — pending attachments preview as thumbnails
+            INSIDE it, above the text you're typing (iMessage-style). */}
+        <div className="flex min-w-0 flex-1 flex-col rounded-3xl border border-line-strong bg-surface-2 transition-colors focus-within:border-muted">
+          {!editing && (
+            <InputAttachments items={att.pending} onRemove={att.remove} />
+          )}
+          <textarea
           ref={textareaRef}
           value={draft}
           onChange={(e) => {
@@ -478,8 +537,9 @@ export function MessageComposer({
           }}
           rows={1}
           placeholder={isEmail ? "Reply…" : "Message"}
-          className="max-h-[140px] min-h-[42px] flex-1 resize-none overflow-y-hidden [scrollbar-width:thin] rounded-3xl border border-line-strong bg-surface-2 px-4 py-2.5 text-body leading-snug text-ink-strong outline-none transition-colors placeholder:text-faint focus:border-muted"
+          className="max-h-[140px] min-h-[42px] w-full resize-none overflow-y-hidden [scrollbar-width:thin] bg-transparent px-4 py-2.5 text-body leading-snug text-ink-strong outline-none placeholder:text-faint"
         />
+        </div>
         {editing || canSend || draft.trim() ? (
           <button
             type="button"

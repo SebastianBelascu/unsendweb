@@ -237,8 +237,105 @@ function fmtDur(s?: number): string {
   return `${m}:${sec < 10 ? "0" : ""}${sec}`;
 }
 
-/** Horizontal tray of pending attachments above the composer input. */
+/**
+ * Pending attachments previewed as outbound bubbles above the composer input —
+ * iMessage-style: a preview of the message about to be sent, right-aligned in
+ * the conversation's accent (chat purple / email green). Images ARE the bubble;
+ * files/voice show an accent bubble chip. Each carries a corner remove button.
+ */
 export function AttachmentTray({
+  items,
+  onRemove,
+  isEmail = false,
+}: {
+  items: PendingAttachment[];
+  onRemove: (localId: string) => void;
+  isEmail?: boolean;
+}) {
+  if (items.length === 0) return null;
+  return (
+    <div className="flex flex-wrap justify-start gap-2 px-4 pt-3">
+      {items.map((a) => {
+        const isImage = Boolean(a.previewUrl) && a.type.startsWith("image");
+        const uploading = a.status === "uploading";
+        const failed = a.status === "error";
+        return (
+          <div key={a.localId} className="relative">
+            {isImage ? (
+              <div className="relative w-fit overflow-hidden rounded-bubble">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={a.previewUrl}
+                  alt={a.name}
+                  className="block h-auto max-h-52 w-auto max-w-[220px] object-cover"
+                />
+                {(uploading || failed) && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/45 text-caption font-semibold text-white">
+                    {failed ? (
+                      a.error || "Failed"
+                    ) : (
+                      <span className="flex items-center gap-1.5">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        {a.progress}%
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div
+                className={cn(
+                  "flex max-w-[240px] items-center gap-2.5 rounded-bubble px-3.5 py-2.5 text-white",
+                  isEmail ? "bg-email" : "bg-chat",
+                )}
+              >
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/15">
+                  {a.isVoice ? (
+                    <Mic className="h-5 w-5" />
+                  ) : (
+                    <FileText className="h-5 w-5" />
+                  )}
+                </span>
+                <div className="min-w-0">
+                  <div className="truncate text-subhead font-medium">
+                    {a.isVoice ? "Voice message" : a.name}
+                  </div>
+                  <div className="text-micro text-white/70">
+                    {failed
+                      ? a.error || "Upload failed"
+                      : uploading
+                        ? `${a.progress}%`
+                        : a.isVoice
+                          ? fmtDur(a.durationSec)
+                          : "Ready to send"}
+                  </div>
+                </div>
+                {uploading && (
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin text-white/80" />
+                )}
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => onRemove(a.localId)}
+              className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-surface-3 text-faint shadow ring-2 ring-canvas transition-colors hover:text-ink"
+              aria-label={`Remove ${a.name}`}
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Pending attachments rendered INSIDE the message input field (iMessage-style):
+ * small rounded thumbnails sitting above the text you type, each with a corner
+ * remove button. Meant to live inside the rounded input container.
+ */
+export function InputAttachments({
   items,
   onRemove,
 }: {
@@ -247,54 +344,57 @@ export function AttachmentTray({
 }) {
   if (items.length === 0) return null;
   return (
-    <div className="flex flex-wrap gap-2 px-4 pt-3">
-      {items.map((a) => (
-        <div
-          key={a.localId}
-          className="relative flex items-center gap-2 overflow-hidden rounded-lg border border-line-strong bg-surface-2 p-1.5 pr-2"
-        >
-          {a.previewUrl && a.type.startsWith("image") ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={a.previewUrl}
-              alt={a.name}
-              className="h-10 w-10 rounded object-cover"
-            />
-          ) : (
-            <div className="flex h-10 w-10 items-center justify-center rounded bg-surface-3 text-faint">
-              {a.isVoice ? <Mic className="h-5 w-5" /> : <FileText className="h-5 w-5" />}
-            </div>
-          )}
-          <div className="min-w-0 max-w-[140px]">
-            <div className="truncate text-caption text-ink">
-              {a.isVoice ? `Voice · ${fmtDur(a.durationSec)}` : a.name}
-            </div>
-            <div
-              className={cn(
-                "text-micro text-faint",
-                a.status === "error" && "text-accent",
-              )}
+    <div className="flex flex-wrap gap-2 px-3 pt-2.5">
+      {items.map((a) => {
+        const isImage = Boolean(a.previewUrl) && a.type.startsWith("image");
+        const uploading = a.status === "uploading";
+        const failed = a.status === "error";
+        return (
+          <div key={a.localId} className="relative">
+            {isImage ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={a.previewUrl}
+                alt={a.name}
+                className="h-14 w-14 rounded-xl object-cover"
+              />
+            ) : (
+              <div className="flex h-14 w-14 flex-col items-center justify-center gap-0.5 rounded-xl bg-surface-3 px-1 text-faint">
+                {a.isVoice ? (
+                  <Mic className="h-5 w-5" />
+                ) : (
+                  <FileText className="h-5 w-5" />
+                )}
+                <span className="w-full truncate text-center text-[9px] leading-tight">
+                  {a.isVoice ? fmtDur(a.durationSec) : a.name}
+                </span>
+              </div>
+            )}
+            {(uploading || failed) && (
+              <div
+                className={cn(
+                  "absolute inset-0 flex items-center justify-center rounded-xl",
+                  failed ? "bg-accent/60" : "bg-black/40",
+                )}
+              >
+                {failed ? (
+                  <X className="h-5 w-5 text-white" />
+                ) : (
+                  <Loader2 className="h-4 w-4 animate-spin text-white" />
+                )}
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => onRemove(a.localId)}
+              className="absolute -right-1.5 -top-1.5 flex h-[18px] w-[18px] items-center justify-center rounded-full bg-surface-3 text-faint ring-2 ring-surface-2 transition-colors hover:text-ink"
+              aria-label={`Remove ${a.name}`}
             >
-              {a.status === "error"
-                ? a.error || "Upload failed"
-                : a.status === "uploading"
-                  ? `${a.progress}%`
-                  : "Ready"}
-            </div>
+              <X className="h-3 w-3" />
+            </button>
           </div>
-          {a.status === "uploading" && (
-            <Loader2 className="h-4 w-4 shrink-0 animate-spin text-faint" />
-          )}
-          <button
-            type="button"
-            onClick={() => onRemove(a.localId)}
-            className="ml-0.5 shrink-0 rounded-full p-0.5 text-faint hover:bg-surface-3 hover:text-ink"
-            aria-label={`Remove ${a.name}`}
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

@@ -105,6 +105,46 @@ export function bumpThread(
 }
 
 /**
+ * Insert a freshly-created conversation at the TOP of the inbox caches right
+ * away, so a brand-new thread (compose's first send) shows in the list without
+ * waiting for the refetch. Idempotent — skips if the row already exists; marks
+ * the row bumped so the trailing refetch doesn't drop it before the server
+ * commits. Mirrors the new-thread branch of `applyThreadEvent`.
+ */
+export function insertNewThreadRow(qc: QueryClient, item: ThreadListItem): void {
+  try {
+    if ((!item.id && !item.topicId) || item.isDeleted || item.isSpam) return;
+    markBumped(item.id, item.topicId);
+    const matches = (t: ThreadListItem | undefined) =>
+      !!t &&
+      ((!!item.id && t.id === item.id) ||
+        (!!item.topicId && t.topicId === item.topicId));
+
+    qc.setQueryData<InfiniteData<ThreadsPage>>(["threads", "inbox"], (cache) => {
+      if (!cache) return cache;
+      if (cache.pages.some((pg) => (pg.items ?? []).some(matches))) return cache;
+      const [first, ...rest] = cache.pages;
+      const f = first ?? { items: [], page: 1, totalPages: 1 };
+      return {
+        ...cache,
+        pages: [{ ...f, items: [item, ...(f.items ?? [])] }, ...rest],
+      };
+    });
+    // Flat caches: the nav-badge inbox snapshot + the chat-only list.
+    qc.setQueryData<ThreadListItem[]>(["threads", "inboxAll"], (list) =>
+      Array.isArray(list) && !list.some(matches) ? [item, ...list] : list,
+    );
+    if (!item.isEmail) {
+      qc.setQueryData<ThreadListItem[]>(["chatThreads"], (list) =>
+        Array.isArray(list) && !list.some(matches) ? [item, ...list] : list,
+      );
+    }
+  } catch {
+    /* a cosmetic list write must never break the send flow */
+  }
+}
+
+/**
  * Reconcile a THREAD socket event (`data.lastMessage` present, no `headerId`)
  * into the conversation-list caches — the instant-list counterpart to the
  * message reconciliation in SocketProvider. Mirrors the native `useThreadUpdates`

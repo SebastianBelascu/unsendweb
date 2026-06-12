@@ -130,6 +130,27 @@ export function useChatThreads() {
   });
 }
 
+/**
+ * First page of the inbox (email + chat together), kept globally for the nav
+ * unread badges. Unread threads sort to the top, so page 1 reliably catches
+ * them; muted threads already carry unread=false (see mappers).
+ */
+export function useInboxThreads() {
+  const qc = useQueryClient();
+  return useQuery({
+    queryKey: ["threads", "inboxAll"],
+    queryFn: async () => {
+      const res = await apiGet<ThreadsResponse>(
+        `/threads/filter/inbox/page/1/size/50`,
+      );
+      const items = (res?.data ?? []).map(mapThread);
+      const cached = qc.getQueryData<ThreadListItem[]>(["threads", "inboxAll"]);
+      return items.map(keepRecentlyBumped(cached));
+    },
+    refetchInterval: 20_000,
+  });
+}
+
 export async function fetchThreadParticipants(
   threadId: string,
 ): Promise<ThreadParticipant[]> {

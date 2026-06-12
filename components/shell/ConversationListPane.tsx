@@ -1,19 +1,19 @@
-"use client";
+'use client';
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, PenSquare, Search, X } from "lucide-react";
-import { ThreadsList } from "@/components/mail/ThreadsList";
-import { CallsList } from "@/components/calls/CallsList";
-import { ContactsPane } from "@/components/contacts/ContactsPane";
-import { SearchPeople } from "./SearchPeople";
-import { SyncStatus } from "@/components/mail/SyncStatus";
-import { SearchField } from "@/components/ui/SearchField";
-import { IconButton } from "@/components/ui/IconButton";
-import { Chip } from "@/components/ui/Chip";
-import { usePinnedThreads, useThreadsInfinite } from "@/lib/api/threads";
-import { useSession } from "@/lib/api/account";
-import { useDraftStore } from "@/lib/drafts";
-import { useComposeModal } from "@/lib/compose-modal";
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Info, Loader2, PenSquare, Search, X } from 'lucide-react';
+import { ThreadsList } from '@/components/mail/ThreadsList';
+import { CallsList } from '@/components/calls/CallsList';
+import { ContactsPane } from '@/components/contacts/ContactsPane';
+import { SearchPeople } from './SearchPeople';
+import { SyncStatus } from '@/components/mail/SyncStatus';
+import { SearchField } from '@/components/ui/SearchField';
+import { IconButton } from '@/components/ui/IconButton';
+import { Chip } from '@/components/ui/Chip';
+import { usePinnedThreads, useThreadsInfinite } from '@/lib/api/threads';
+import { useSession } from '@/lib/api/account';
+import { useDraftStore } from '@/lib/drafts';
+import { useRouter } from 'next/navigation';
 import {
   CALL_FILTERS,
   filterBackendFilter,
@@ -24,8 +24,8 @@ import {
   type CallFilter,
   type InboxFilter,
   type NavSection,
-} from "@/lib/inbox-view";
-import { cn } from "@/lib/utils";
+} from '@/lib/inbox-view';
+import { cn } from '@/lib/utils';
 
 /**
  * Conversation list (middle pane). The left rail picks the `section`; chips pick
@@ -43,9 +43,9 @@ export function ConversationListPane({
   onFilter: (f: InboxFilter) => void;
   activeId?: string;
 }) {
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
-  const [callFilter, setCallFilter] = useState<CallFilter>("all");
+  const [callFilter, setCallFilter] = useState<CallFilter>('all');
   const { data: me } = useSession();
 
   // Hydrate persisted drafts once so inbox rows can show a "Draft" preview.
@@ -57,7 +57,7 @@ export function ConversationListPane({
   const sectionFilters = filtersForSection(section);
   const effectiveFilter = sectionFilters.some((f) => f.key === filter)
     ? filter
-    : "all";
+    : 'all';
   const backendFilter = filterBackendFilter(effectiveFilter);
 
   const {
@@ -83,16 +83,14 @@ export function ConversationListPane({
       .filter(keep)
       .sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt));
     // Pinned row only on the normal bucket (chip "all"); honor the rail type.
-    if (effectiveFilter !== "all") return base;
+    if (effectiveFilter !== 'all') return base;
     // Pins sort by pinDate (when you pinned), NOT last-message time — native
     // `Thread.sortedDate`. So a fresh message in a pinned chat updates its
     // preview but never reshuffles the pinned group. Most-recently-pinned first.
     const pinKey = (t: (typeof items)[number]) =>
       +new Date(t.pinDate ?? t.updatedAt);
     const pins = (pinned ?? [])
-      .filter(
-        (t) => !t.isDeleted && !t.isSpam && (!typePred || typePred(t)),
-      )
+      .filter((t) => !t.isDeleted && !t.isSpam && (!typePred || typePred(t)))
       .sort((a, b) => pinKey(b) - pinKey(a));
     if (!pins.length) return base;
     const pinnedIds = new Set(pins.map((t) => t.id));
@@ -104,13 +102,13 @@ export function ConversationListPane({
     if (!q) return all;
     return all.filter(
       (t) =>
-        (t.groupName ?? "").toLowerCase().includes(q) ||
-        (t.subject ?? "").toLowerCase().includes(q) ||
+        (t.groupName ?? '').toLowerCase().includes(q) ||
+        (t.subject ?? '').toLowerCase().includes(q) ||
         t.preview.toLowerCase().includes(q) ||
         t.participants.some(
           (p) =>
             p.name.toLowerCase().includes(q) ||
-            (p.address ?? "").toLowerCase().includes(q),
+            (p.address ?? '').toLowerCase().includes(q),
         ),
     );
   }, [all, query]);
@@ -126,19 +124,19 @@ export function ConversationListPane({
     return () => ob.disconnect();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
-  const openCompose = useComposeModal((s) => s.open);
+  const router = useRouter();
   const title = sectionLabel(section);
   // Chats rail → chat compose; All/Emails → email compose.
-  const composeEmail = section !== "chats";
+  const composeEmail = section !== 'chats';
 
   function toggleSearch() {
     setSearchOpen((open) => {
       if (open) {
         // Closing the search panel clears the query AND the filter — the chips
         // live inside this panel, so a hidden active filter would be confusing.
-        setQuery("");
-        onFilter("all");
-        setCallFilter("all");
+        setQuery('');
+        onFilter('all');
+        setCallFilter('all');
       }
       return !open;
     });
@@ -146,7 +144,7 @@ export function ConversationListPane({
 
   // Calls section: same search principle as the thread sections — tap the search
   // icon to reveal the field + the filter chips (hidden until then).
-  if (section === "calls") {
+  if (section === 'calls') {
     return (
       <div className="flex h-full flex-col">
         <header className="flex flex-col gap-3 border-b border-line px-4 pb-3 pt-4">
@@ -154,7 +152,7 @@ export function ConversationListPane({
             <h1 className="text-title font-bold text-ink-strong">Calls</h1>
             <div className="ml-auto flex items-center gap-1">
               <IconButton
-                label={searchOpen ? "Close search" : "Search"}
+                label={searchOpen ? 'Close search' : 'Search'}
                 variant="surface"
                 size={38}
                 onClick={toggleSearch}
@@ -164,6 +162,14 @@ export function ConversationListPane({
                 ) : (
                   <Search className="h-4 w-4" />
                 )}
+              </IconButton>
+              <IconButton
+                label="Calls ring on the web only while Unsend is open in a tab."
+                variant="ghost"
+                size={38}
+                className="cursor-default text-faint"
+              >
+                <Info className="h-4 w-4" />
               </IconButton>
             </div>
           </div>
@@ -182,10 +188,10 @@ export function ConversationListPane({
                     <Chip
                       key={c.key}
                       active={on}
-                      onClick={() => setCallFilter(on ? "all" : c.key)}
+                      onClick={() => setCallFilter(on ? 'all' : c.key)}
                       className={cn(
-                        "gap-1 px-2",
-                        on && "bg-accent text-white hover:opacity-90",
+                        'gap-1 px-2',
+                        on && 'bg-accent text-white hover:opacity-90',
                       )}
                     >
                       {c.label}
@@ -203,7 +209,7 @@ export function ConversationListPane({
   }
 
   // The contacts section shows the address book (no threads).
-  if (section === "contacts") {
+  if (section === 'contacts') {
     return <ContactsPane />;
   }
 
@@ -215,7 +221,7 @@ export function ConversationListPane({
           <SyncStatus />
           <div className="ml-auto flex items-center gap-1">
             <IconButton
-              label={searchOpen ? "Close search" : "Search"}
+              label={searchOpen ? 'Close search' : 'Search'}
               variant="surface"
               size={38}
               onClick={toggleSearch}
@@ -228,7 +234,9 @@ export function ConversationListPane({
             </IconButton>
             <button
               type="button"
-              onClick={() => openCompose({ isEmail: composeEmail })}
+              onClick={() =>
+                router.push(`/compose?type=${composeEmail ? 'email' : 'chat'}`)
+              }
               aria-label="Compose"
               title="Compose"
               className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-full bg-accent text-white transition-colors hover:opacity-90"
@@ -252,10 +260,10 @@ export function ConversationListPane({
                   <Chip
                     key={c.key}
                     active={on}
-                    onClick={() => onFilter(on ? "all" : c.key)}
+                    onClick={() => onFilter(on ? 'all' : c.key)}
                     className={cn(
-                      "gap-1 px-2",
-                      on && "bg-accent text-white hover:opacity-90",
+                      'gap-1 px-2',
+                      on && 'bg-accent text-white hover:opacity-90',
                     )}
                   >
                     {c.label}
@@ -294,7 +302,10 @@ export function ConversationListPane({
           </div>
         ) : (
           <>
-            {query.trim() && (
+            {/* "People" surfaces chat users and opens a CHAT on tap — only
+                meaningful in chat-oriented sections. Hidden in Emails, where
+                chat people next to an email search reads as confusing. */}
+            {query.trim() && section !== 'emails' && (
               <SearchPeople query={query} selfUsername={me?.username} />
             )}
             <ThreadsList

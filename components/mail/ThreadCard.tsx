@@ -153,7 +153,7 @@ export function ThreadCard({
               typing.length
                 ? "font-medium text-accent"
                 : unread
-                  ? "text-ink"
+                  ? "font-semibold text-ink"
                   : "text-faint",
             )}
           >

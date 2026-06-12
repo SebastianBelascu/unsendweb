@@ -20,6 +20,7 @@ export function RecipientInput({
   onChange,
   allowFreeText = false,
   autoFocus = false,
+  focusToken,
 }: {
   label: string;
   value: Recipient[];
@@ -27,11 +28,21 @@ export function RecipientInput({
   /** Email mode: allow arbitrary typed addresses, not just Unsend users. */
   allowFreeText?: boolean;
   autoFocus?: boolean;
+  /** Bump to re-focus the input (e.g. after the compose Chat/Email toggle, which
+   *  otherwise moves focus to the toggle button — native `toFocusToken`). */
+  focusToken?: number;
 }) {
   const [text, setText] = useState("");
   const [debounced, setDebounced] = useState("");
   const [open, setOpen] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Re-focus on token change (skips the initial 0/undefined so it doesn't fight
+  // autoFocus or steal focus on first mount).
+  useEffect(() => {
+    if (focusToken) inputRef.current?.focus();
+  }, [focusToken]);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(text.trim()), 200);
@@ -136,6 +147,7 @@ export function RecipientInput({
             </span>
           ))}
           <input
+            ref={inputRef}
             value={text}
             autoFocus={autoFocus}
             onChange={(e) => {

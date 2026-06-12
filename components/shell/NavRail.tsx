@@ -5,9 +5,11 @@ import { usePathname } from "next/navigation";
 import { Inbox, Mail, MessageCircle, Phone, Settings, Users } from "lucide-react";
 import { NAV_SECTIONS, type NavSection } from "@/lib/inbox-view";
 import { useSession } from "@/lib/api/account";
+import { useNavBadges } from "@/lib/nav-badges";
 import { useRealtime } from "@/lib/realtime/store";
 import { selfAvatarUrl } from "@/lib/avatar-url";
 import { Avatar } from "@/components/mail/Avatar";
+import { NavBadge } from "./NavBadge";
 import { cn } from "@/lib/utils";
 
 const ICONS: Record<NavSection, typeof MessageCircle> = {
@@ -37,6 +39,7 @@ export function NavRail({
     me?.username ? s.avatarVersions[me.username.toLowerCase()] : undefined,
   );
   const ownPhoto = selfAvatarUrl(me?.username, ownVersion);
+  const badges = useNavBadges();
 
   return (
     <nav className="hidden w-16 shrink-0 flex-col items-center gap-1 border-r border-line bg-surface py-3 lg:flex">
@@ -51,13 +54,14 @@ export function NavRail({
             aria-label={s.label}
             onClick={() => onSection(s.key)}
             className={cn(
-              "flex h-11 w-11 items-center justify-center rounded-2xl transition-colors",
+              "relative flex h-11 w-11 items-center justify-center rounded-2xl transition-colors",
               active
                 ? "bg-accent/15 text-accent"
                 : "text-faint hover:bg-surface-2 hover:text-ink",
             )}
           >
             <Icon className="h-[22px] w-[22px]" />
+            <NavBadge count={badges[s.key]} className="absolute right-1 top-1" />
           </button>
         );
       })}

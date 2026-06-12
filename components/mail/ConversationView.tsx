@@ -1,10 +1,18 @@
-"use client";
+'use client';
 
-import Link from "next/link";
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { useQueryClient } from "@tanstack/react-query";
-import { format, isToday, isYesterday } from "date-fns";
+import Link from 'next/link';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { createPortal } from 'react-dom';
+import { useQueryClient } from '@tanstack/react-query';
+import { format, isToday, isYesterday } from 'date-fns';
 import {
   ArrowDown,
   ArrowLeft,
@@ -28,44 +36,41 @@ import {
   Users,
   Video,
   X,
-} from "lucide-react";
-import { Avatar } from "./Avatar";
-import { UserAvatar } from "./UserAvatar";
-import { AttachmentGrid } from "./AttachmentGrid";
-import { SwipeToReply } from "./SwipeToReply";
-import { VoiceMessage } from "./VoiceMessage";
-import { CallButtons } from "@/components/calls/CallButtons";
-import { EmailBody } from "./EmailBody";
-import { MessageComposer, type ComposerRecipients } from "./MessageComposer";
-import { MentionText } from "./MentionText";
-import { LinkPreviewCard } from "./LinkPreview";
-import { buildMentions, type MentionParticipant } from "@/lib/mentions";
-import { firstUrl } from "@/lib/api/link-preview";
-import { toast } from "@/lib/toast";
+} from 'lucide-react';
+import { Avatar } from './Avatar';
+import { UserAvatar } from './UserAvatar';
+import { AttachmentGrid } from './AttachmentGrid';
+import { SwipeToReply } from './SwipeToReply';
+import { VoiceMessage } from './VoiceMessage';
+import { CallButtons } from '@/components/calls/CallButtons';
+import { EmailBody } from './EmailBody';
+import { MessageComposer, type ComposerRecipients } from './MessageComposer';
+import { MentionText } from './MentionText';
+import { LinkPreviewCard } from './LinkPreview';
+import { buildMentions, type MentionParticipant } from '@/lib/mentions';
+import { firstUrl } from '@/lib/api/link-preview';
+import { toast } from '@/lib/toast';
 import {
   canEditMessage,
   canUnsendForAll,
   withinEditWindow,
-} from "@/lib/message-actions";
-import { placeCall } from "@/lib/calls/controller";
-import {
-  dtosToMailAttachments,
-  useComposerAttachments,
-} from "./attachments";
-import { cn } from "@/lib/utils";
-import { isOwnMessage, localPart, MAIL_DOMAIN } from "@/lib/identity";
+} from '@/lib/message-actions';
+import { placeCall } from '@/lib/calls/controller';
+import { dtosToMailAttachments, useComposerAttachments } from './attachments';
+import { cn } from '@/lib/utils';
+import { isOwnMessage, localPart, MAIL_DOMAIN } from '@/lib/identity';
 import {
   clearActiveThread,
   setActiveThread,
-} from "@/lib/realtime/active-thread";
-import { useSession } from "@/lib/api/account";
+} from '@/lib/realtime/active-thread';
+import { useSession } from '@/lib/api/account';
 import {
   useEmitTyping,
   useLastSeen,
   useOnline,
   usePresenceFor,
   useTyping,
-} from "@/lib/realtime/hooks";
+} from '@/lib/realtime/hooks';
 import {
   fetchMessageHtml,
   fetchOlderMessages,
@@ -77,59 +82,59 @@ import {
   useSendMessage,
   useThreadMessages,
   type SendMessageInput,
-} from "@/lib/api/messages";
-import { ApiError } from "@/lib/api/http";
-import { useThreadParticipants } from "@/lib/api/threads";
-import { markThreadReadInCache } from "@/lib/realtime/threadCache";
-import { useComposeModal } from "@/lib/compose-modal";
-import { ConfirmDialog } from "./ConfirmDialog";
-import { EmojiPicker } from "./EmojiPicker";
-import { quickReactionRow, recordReaction } from "@/lib/recent-reactions";
-import { GroupPanel } from "./GroupPanel";
-import { ProfilePanel } from "./ProfilePanel";
-import { MessageInfoSheet } from "./MessageInfoSheet";
-import { ReactorSheet } from "./ReactorSheet";
+} from '@/lib/api/messages';
+import { ApiError } from '@/lib/api/http';
+import { useThreadParticipants } from '@/lib/api/threads';
+import { markThreadReadInCache } from '@/lib/realtime/threadCache';
+import { useComposeModal } from '@/lib/compose-modal';
+import { ConfirmDialog } from './ConfirmDialog';
+import { EmojiPicker } from './EmojiPicker';
+import { quickReactionRow, recordReaction } from '@/lib/recent-reactions';
+import { GroupPanel } from './GroupPanel';
+import { ProfilePanel } from './ProfilePanel';
+import { MessageInfoSheet } from './MessageInfoSheet';
+import { ReactorSheet } from './ReactorSheet';
 import type {
   MailAttachment,
   MailMessage,
   MailReaction,
   ThreadParticipant,
-} from "@/lib/types";
+} from '@/lib/types';
 
-const ME = { name: "You" };
-const QUICK_EMOJIS = ["❤️", "😂", "😮", "😢", "😠", "👍"];
+const ME = { name: 'You' };
+const QUICK_EMOJIS = ['❤️', '😂', '😮', '😢', '😠', '👍'];
 const IMG_RE = /\.(jpg|jpeg|png|gif|bmp|webp|heic|heif|tiff|tif)$/i;
 const VID_RE = /\.(mp4|mov|avi|mkv|wmv|flv|3gp|m4v)$/i;
 
 function stripRe(subject: string): string {
-  return subject.replace(/^\s*(re|fwd|fw)\s*:\s*/i, "").trim();
+  return subject.replace(/^\s*(re|fwd|fw)\s*:\s*/i, '').trim();
 }
 
 function lastSeenLabel(iso: string): string {
   const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
-  if (s < 60) return "just now";
+  if (s < 60) return 'just now';
   if (s < 3600) return `${Math.floor(s / 60)}m ago`;
   if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
   const days = Math.floor(s / 86400);
-  if (days === 1) return "yesterday";
+  if (days === 1) return 'yesterday';
   if (days < 7) return `${days}d ago`;
-  return format(new Date(iso), "MMM d");
+  return format(new Date(iso), 'MMM d');
 }
 
-function fileKind(a: MailAttachment): "image" | "video" | "voice" | "file" {
-  const fn = (a.filename || "").toLowerCase();
-  const t = (a.type || "").toLowerCase();
-  if (a.durationSec != null || /\.m4a$/.test(fn) || t.startsWith("audio"))
-    return "voice";
-  if (t.startsWith("image") || IMG_RE.test(fn)) return "image";
-  if (t.startsWith("video") || VID_RE.test(fn)) return "video";
-  return "file";
+function fileKind(a: MailAttachment): 'image' | 'video' | 'voice' | 'file' {
+  const fn = (a.filename || '').toLowerCase();
+  const t = (a.type || '').toLowerCase();
+  if (a.durationSec != null || /\.m4a$/.test(fn) || t.startsWith('audio'))
+    return 'voice';
+  if (t.startsWith('image') || IMG_RE.test(fn)) return 'image';
+  if (t.startsWith('video') || VID_RE.test(fn)) return 'video';
+  return 'file';
 }
 
 function dayLabel(d: Date): string {
-  if (isToday(d)) return "Today";
-  if (isYesterday(d)) return "Yesterday";
-  return format(d, "MMM d, yyyy");
+  if (isToday(d)) return 'Today';
+  if (isYesterday(d)) return 'Yesterday';
+  return format(d, 'MMM d, yyyy');
 }
 
 const Attachments = memo(function Attachments({
@@ -144,11 +149,11 @@ const Attachments = memo(function Attachments({
   const listened = useRef(false);
   const media = attachments.filter((a) => {
     const k = fileKind(a);
-    return (k === "image" || k === "video") && a.url;
+    return (k === 'image' || k === 'video') && a.url;
   });
   const rest = attachments.filter((a) => {
     const k = fileKind(a);
-    return k !== "image" && k !== "video";
+    return k !== 'image' && k !== 'video';
   });
 
   function onVoicePlay() {
@@ -162,7 +167,7 @@ const Attachments = memo(function Attachments({
       {media.length > 0 && <AttachmentGrid media={media} />}
       {rest.map((a) => {
         const k = fileKind(a);
-        if (k === "voice")
+        if (k === 'voice')
           return (
             <VoiceMessage
               key={a.id}
@@ -213,14 +218,22 @@ function ReactionChips({
   const reactions = message.reactions ?? [];
   if (reactions.length === 0) return null;
   const unique: string[] = [];
-  for (const r of reactions) if (!unique.includes(r.emoji)) unique.push(r.emoji);
+  for (const r of reactions)
+    if (!unique.includes(r.emoji)) unique.push(r.emoji);
   const mine = new Set(
-    reactions.filter((r) => r.byUserId && r.byUserId === myUserId).map((r) => r.emoji),
+    reactions
+      .filter((r) => r.byUserId && r.byUserId === myUserId)
+      .map((r) => r.emoji),
   );
   const shown = unique.slice(0, 3);
   const extra = unique.length - shown.length;
   return (
-    <div className={cn("mt-0.5 flex flex-wrap gap-1", isOwn ? "justify-end" : "justify-start")}>
+    <div
+      className={cn(
+        'mt-0.5 flex flex-wrap gap-1',
+        isOwn ? 'justify-end' : 'justify-start',
+      )}
+    >
       {shown.map((emoji) => (
         <button
           key={emoji}
@@ -230,10 +243,10 @@ function ReactionChips({
             onOpen();
           }}
           className={cn(
-            "flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-caption",
+            'flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-caption',
             mine.has(emoji)
-              ? "border-link/50 bg-link/15"
-              : "border-line-strong bg-surface-2",
+              ? 'border-link/50 bg-link/15'
+              : 'border-line-strong bg-surface-2',
           )}
         >
           <span>{emoji}</span>
@@ -317,13 +330,13 @@ function OriginalOverlay({
 }
 
 type MsgAction =
-  | "reply"
-  | "copy"
-  | "edit"
-  | "forward"
-  | "info"
-  | "deleteForMe"
-  | "deleteForAll";
+  | 'reply'
+  | 'copy'
+  | 'edit'
+  | 'forward'
+  | 'info'
+  | 'deleteForMe'
+  | 'deleteForAll';
 
 interface MenuPos {
   top?: number;
@@ -352,20 +365,34 @@ function BubbleMenu({
   // in lib/message-actions so the wall-clock check stays out of render.
   const canEdit = canEditMessage(message, isOwn, hasText);
   const canDeleteForAll = canUnsendForAll(message, isOwn);
-  const items: { key: MsgAction; label: string; Icon: typeof Reply; danger?: boolean }[] =
-    [];
+  const items: {
+    key: MsgAction;
+    label: string;
+    Icon: typeof Reply;
+    danger?: boolean;
+  }[] = [];
   if (!deleted) {
     // "Message info" first (WhatsApp-style): chat shows seen/delivered rosters,
     // email shows the full From/To/Cc/Bcc headers.
-    items.push({ key: "info", label: "Message info", Icon: Info });
-    items.push({ key: "reply", label: "Reply", Icon: Reply });
-    if (hasText) items.push({ key: "copy", label: "Copy", Icon: Copy });
-    items.push({ key: "forward", label: "Forward", Icon: Forward });
-    if (canEdit) items.push({ key: "edit", label: "Edit", Icon: Pencil });
+    items.push({ key: 'info', label: 'Message info', Icon: Info });
+    items.push({ key: 'reply', label: 'Reply', Icon: Reply });
+    if (hasText) items.push({ key: 'copy', label: 'Copy', Icon: Copy });
+    items.push({ key: 'forward', label: 'Forward', Icon: Forward });
+    if (canEdit) items.push({ key: 'edit', label: 'Edit', Icon: Pencil });
   }
-  items.push({ key: "deleteForMe", label: "Delete for me", Icon: Trash2, danger: true });
+  items.push({
+    key: 'deleteForMe',
+    label: 'Delete for me',
+    Icon: Trash2,
+    danger: true,
+  });
   if (canDeleteForAll)
-    items.push({ key: "deleteForAll", label: "Unsend for everyone", Icon: Ban, danger: true });
+    items.push({
+      key: 'deleteForAll',
+      label: 'Unsend for everyone',
+      Icon: Ban,
+      danger: true,
+    });
 
   // Portal + fixed positioning so the menu is never clipped by the scroll
   // container and can flip up/down based on available space (computed by Bubble).
@@ -392,8 +419,8 @@ function BubbleMenu({
               onClose();
             }}
             className={cn(
-              "flex w-full items-center gap-2.5 px-3 py-2 text-left text-footnote hover:bg-surface-3",
-              it.danger ? "text-accent" : "text-ink",
+              'flex w-full items-center gap-2.5 px-3 py-2 text-left text-footnote hover:bg-surface-3',
+              it.danger ? 'text-accent' : 'text-ink',
             )}
           >
             <it.Icon className="h-4 w-4 shrink-0" />
@@ -408,10 +435,8 @@ function BubbleMenu({
 
 /** WhatsApp-style delivery ticks for an outbound message. */
 function StatusTicks({ message }: { message: MailMessage }) {
-  if (message.status === "sending")
-    return (
-      <Loader2 className="h-3 w-3 animate-spin" aria-label="Sending" />
-    );
+  if (message.status === 'sending')
+    return <Loader2 className="h-3 w-3 animate-spin" aria-label="Sending" />;
   if (message.isRead)
     return <CheckCheck className="h-3.5 w-3.5 text-link" aria-label="Read" />;
   if (message.isDelivered)
@@ -496,6 +521,11 @@ function Bubble({
   // via a portal so it's never clipped by the scroll container.
   const bubbleRef = useRef<HTMLDivElement>(null);
   const menuBtnRef = useRef<HTMLButtonElement>(null);
+  // Reply-connector measurement (the SVG path is computed from the quote pill +
+  // bubble rects so the line can bridge two opposite-aligned boxes precisely).
+  const replyWrapRef = useRef<HTMLDivElement>(null);
+  const quoteRef = useRef<HTMLButtonElement>(null);
+  const avatarRef = useRef<HTMLDivElement>(null);
   const [menuPos, setMenuPos] = useState<MenuPos | null>(null);
   useLayoutEffect(() => {
     if (!menuOpen) {
@@ -523,15 +553,15 @@ function Bubble({
   useEffect(() => {
     if (!menuOpen) return;
     const close = () => onToggleMenu();
-    window.addEventListener("scroll", close, true);
-    window.addEventListener("resize", close);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
     return () => {
-      window.removeEventListener("scroll", close, true);
-      window.removeEventListener("resize", close);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
     };
   }, [menuOpen, onToggleMenu]);
 
-  const ownColor = isEmail ? "bg-email text-white" : "bg-chat text-white";
+  const ownColor = isEmail ? 'bg-email text-white' : 'bg-chat text-white';
   const text = message.text?.trim();
   const atts = message.attachments ?? [];
   const deleted = Boolean(message.isDeleted);
@@ -539,11 +569,60 @@ function Bubble({
   // Below-bubble status labels, native order (EmailLabelsRow): forwarded · bcc ·
   // edited · private, joined with " • ". Read/delivered is handled separately by
   // StatusTicks; "new"/"before added" need fields the web doesn't carry.
-  const me = (selfAddress ?? "").toLowerCase();
+  const me = (selfAddress ?? '').toLowerCase();
   // Native colours the quote pill + connector by the QUOTED author: the reply
   // accent (purple/green) when you're quoting yourself, neutral grey otherwise.
   const repliedOwn =
-    Boolean(replied) && (replied?.from.address ?? "").toLowerCase() === me;
+    Boolean(replied) && (replied?.from.address ?? '').toLowerCase() === me;
+  // White, subtle — a thin reply tail (hex, not CSS var: SVG stroke attributes
+  // don't reliably resolve var()).
+  const connStroke = '#ffffff';
+
+  // Measured reply connector: a thin path that STARTS at the reply bubble and
+  // runs up to the MIDDLE of the quote in the opposite corner. CSS borders can't
+  // bridge two opposite-aligned boxes of unknown size, so we measure both rects
+  // (relative to the reply wrapper) and draw the line as an SVG path.
+  const [connPath, setConnPath] = useState<{
+    w: number;
+    h: number;
+    d: string;
+  } | null>(null);
+  useLayoutEffect(() => {
+    if (!replied || message.isDeleted) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setConnPath(null);
+      return;
+    }
+    const wrap = replyWrapRef.current;
+    const quote = quoteRef.current;
+    const bub = bubbleRef.current;
+    if (!wrap || !quote || !bub) return;
+    const measure = () => {
+      const w = wrap.getBoundingClientRect();
+      const q = quote.getBoundingClientRect();
+      const b = bub.getBoundingClientRect();
+      const av = avatarRef.current?.getBoundingClientRect();
+      const r = 11; // corner radius (a touch rounder — Apple-style)
+      const qMidY = q.top - w.top + q.height / 2;
+      const sx =
+        !isOwn && av
+          ? av.left - w.left + av.width / 2
+          : (isOwn ? b.right : b.left) - w.left;
+      const sy =
+        !isOwn && av
+          ? av.top - w.top + av.height / 2
+          : b.top - w.top + b.height / 2;
+      const sweep = isOwn ? -1 : 1; // corner turns toward the quote
+      const endX = sx + sweep * (r + 18); // just a SHORT stub past the corner
+      const d = `M ${sx} ${sy} L ${sx} ${qMidY + r} Q ${sx} ${qMidY} ${sx + sweep * r} ${qMidY} L ${endX} ${qMidY}`;
+      setConnPath({ w: w.width, h: w.height, d });
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(wrap);
+    return () => ro.disconnect();
+  }, [replied, message.isDeleted, isOwn, showAvatar]);
+
   const bcc = message.bcc ?? [];
   const bccContext =
     isEmail &&
@@ -551,10 +630,10 @@ function Bubble({
     bcc.length > 0 &&
     (isOwn || bcc.some((p) => p.address?.toLowerCase() === me));
   const statusLabels: string[] = [];
-  if (message.forwarded) statusLabels.push("forwarded");
-  if (bccContext) statusLabels.push("bcc");
-  if (message.edited) statusLabels.push("edited");
-  if (isEmail && message.isPrivate) statusLabels.push("private");
+  if (message.forwarded) statusLabels.push('forwarded');
+  if (bccContext) statusLabels.push('bcc');
+  if (message.edited) statusLabels.push('edited');
+  if (isEmail && message.isPrivate) statusLabels.push('private');
   // Delivery ticks: on the latest sent chat message by default, on any own
   // message you tap (showTime), and whenever a send is in flight/failed.
   const showStatus =
@@ -570,86 +649,65 @@ function Bubble({
       data-mid={message.id}
       onClick={selectMode && selectable ? onToggleSelect : undefined}
       className={cn(
-        "group flex flex-col rounded-lg",
-        selectMode && selectable && "cursor-pointer",
-        selected && "bg-accent/10",
+        'group flex flex-col rounded-lg',
+        selectMode && selectable && 'cursor-pointer',
+        selected && 'bg-accent/10',
       )}
     >
       <SwipeToReply
         enabled={actionable && !deleted && !selectMode}
         isOwn={isOwn}
-        onReply={() => onAction("reply")}
+        onReply={() => onAction('reply')}
       >
-      <div
-        className={cn(
-          "flex items-end gap-2",
-          isOwn ? "flex-row-reverse" : "flex-row",
-        )}
-      >
-      {selectMode && (
-        <span
-          className={cn(
-            "mb-1 flex h-5 w-5 shrink-0 items-center justify-center self-end rounded-full border transition-colors",
-            !selectable
-              ? "border-transparent"
-              : selected
-                ? "border-accent bg-accent text-white"
-                : "border-line-strong text-transparent",
-          )}
-        >
-          <Check className="h-3 w-3" />
-        </span>
-      )}
-      {!isOwn &&
-        (showAvatar ? (
-          <UserAvatar
-            name={message.from.name}
-            address={message.from.address}
-            isEmail={isEmail}
-            size={28}
-            showBadge={false}
-          />
-        ) : (
-          <span className="w-7 shrink-0" />
-        ))}
-
-      <div className={cn("flex max-w-[75%] flex-col", isOwn ? "items-end" : "items-start")}>
-        {!isOwn && (isGroup || isEmail) && showName && (
-          <span className="mb-0.5 ml-1 block text-footnote text-muted">
-            {message.from.name}
-          </span>
-        )}
-
-        {/* Reply → quoted message, native parity: a border-only pill above the
-            bubble, linked to it by a [ / ] bracket connector hugging the shared
-            outer edge. Pill + bracket share one colour — the quoted author's
-            accent (purple/green) when you quote yourself, neutral grey otherwise. */}
         <div
+          ref={replyWrapRef}
           className={cn(
-            "flex items-stretch",
-            isOwn ? "flex-row" : "flex-row-reverse",
+            'relative flex flex-col',
+            // Extra breathing room above a reply so the quote pill doesn't crowd
+            // the message above it.
+            replied && !deleted && 'mt-3',
           )}
         >
-          <div
-            className={cn(
-              "flex min-w-0 flex-col",
-              isOwn ? "items-end" : "items-start",
-            )}
-          >
-            {replied && !deleted && (
+          {/* Reply (iMessage thread style): the quote sits on the OPPOSITE corner
+              from the reply bubble; a measured SVG line starts at the bubble and
+              runs up to the MIDDLE of the quote. Colour follows the quoted
+              author (accent if yours, grey otherwise). */}
+          {connPath && (
+            <svg
+              aria-hidden
+              className="pointer-events-none absolute left-0 top-0 z-[1]"
+              width={connPath.w}
+              height={connPath.h}
+              style={{ overflow: 'visible' }}
+            >
+              <path
+                d={connPath.d}
+                fill="none"
+                stroke={connStroke}
+                strokeOpacity={0.4}
+                strokeWidth={1.5}
+                strokeLinecap="round"
+              />
+            </svg>
+          )}
+          {replied && !deleted && (
+            <div
+              className={cn('flex', isOwn ? 'justify-start' : 'justify-end')}
+            >
               <button
+                ref={quoteRef}
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   onJumpReply?.();
                 }}
                 className={cn(
-                  "mb-1 flex max-w-[220px] overflow-hidden rounded-2xl border bg-transparent px-2.5 py-1.5 text-left transition-opacity hover:opacity-70",
+                  'relative z-10 mb-1 flex max-w-[220px] overflow-hidden rounded-2xl border bg-canvas px-2.5 py-1.5 text-left transition-opacity hover:opacity-70',
                   repliedOwn
                     ? isEmail
-                      ? "border-email-light/60"
-                      : "border-chat-light/60"
-                    : "border-[#888888]/60",
+                      ? 'border-email-light/60'
+                      : 'border-chat-light/60'
+                    : 'border-[#888888]/60',
                 )}
               >
                 <div className="min-w-0">
@@ -658,191 +716,250 @@ function Bubble({
                       {replied.from.name}
                     </div>
                   )}
-                  <div className="truncate text-subhead leading-tight text-white/55">
+                  <div
+                    className={cn(
+                      // The quoted message text in the accent (purple chat / green
+                      // email) so the reply preview stands out — the outline stays.
+                      'truncate text-subhead leading-tight',
+                      isEmail ? 'text-email-light' : 'text-chat-light',
+                    )}
+                  >
                     {replied.text?.trim() ||
-                      (replied.attachments?.length ? "📎 attachment" : "…")}
+                      (replied.attachments?.length ? '📎 attachment' : '…')}
                   </div>
                 </div>
               </button>
-            )}
-
-            <div className="relative flex items-center gap-1">
-          {/* Hover controls — only for real (sent) messages, hidden in select mode. */}
-          {actionable && !selectMode && (
-            <div
-              className={cn(
-                "flex items-center gap-0.5 self-center opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100",
-                menuOpen && "opacity-100",
-                isOwn ? "order-first" : "order-last",
-              )}
-            >
-              {!deleted && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onOpenReact();
-                  }}
-                  className="rounded-full p-1 text-faint hover:text-ink"
-                  aria-label="React"
-                >
-                  <SmilePlus className="h-4 w-4" />
-                </button>
-              )}
-              <button
-                ref={menuBtnRef}
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onToggleMenu();
-                }}
-                className="rounded-full p-1 text-faint hover:text-ink"
-                aria-label="Message actions"
-              >
-                <MoreHorizontal className="h-4 w-4" />
-              </button>
             </div>
           )}
-
           <div
-            ref={bubbleRef}
-            role="button"
-            tabIndex={0}
-            onClick={selectMode ? undefined : onToggleTime}
-            onContextMenu={(e) => {
-              if (!actionable || selectMode) return;
-              e.preventDefault();
-              if (!menuOpen) onToggleMenu();
-            }}
-            onTouchStart={selectMode ? undefined : startPress}
-            onTouchEnd={cancelPress}
-            onTouchMove={cancelPress}
             className={cn(
-              "relative cursor-pointer rounded-bubble px-3.5 py-2.5 text-body leading-snug",
-              deleted
-                ? "bg-surface-2 text-faint"
-                : isOwn
-                  ? ownColor
-                  : "bg-surface-3 text-ink",
+              'relative z-10 flex items-end gap-2',
+              isOwn ? 'flex-row-reverse' : 'flex-row',
             )}
           >
-            {deleted ? (
-              <span className="flex items-center gap-1.5 italic">
-                <Ban className="h-3.5 w-3.5 shrink-0" />
-                {text || "This message was deleted"}
+            {selectMode && (
+              <span
+                className={cn(
+                  'mb-1 flex h-5 w-5 shrink-0 items-center justify-center self-end rounded-full border transition-colors',
+                  !selectable
+                    ? 'border-transparent'
+                    : selected
+                    ? 'border-accent bg-accent text-white'
+                    : 'border-line-strong text-transparent',
+                )}
+              >
+                <Check className="h-3 w-3" />
               </span>
-            ) : (
-              <>
-                {atts.length > 0 && (
-                  <div className={cn(text ? "mb-2" : "")}>
-                    <Attachments attachments={atts} messageId={message.id} isOwn={isOwn} />
-                  </div>
-                )}
-                {text ? (
-                  <MentionText
-                    text={text}
-                    mentions={message.mentions}
-                    isOwn={isOwn}
+            )}
+            {!isOwn &&
+              (showAvatar ? (
+                <div ref={avatarRef} className="shrink-0">
+                  <UserAvatar
+                    name={message.from.name}
+                    address={message.from.address}
+                    isEmail={isEmail}
+                    size={28}
+                    showBadge={false}
                   />
-                ) : null}
-                {text && !isEmail && message.withUrlPreview && firstUrl(text) ? (
-                  <LinkPreviewCard url={firstUrl(text) as string} isOwn={isOwn} />
-                ) : null}
-                {!text && atts.length === 0 && (
-                  <span className="opacity-70">{isEmail ? "📧" : "—"}</span>
-                )}
+                </div>
+              ) : (
+                <span className="w-7 shrink-0" />
+              ))}
 
-                {reactOpen && (
+            <div
+              className={cn(
+                'flex max-w-[75%] flex-col',
+                isOwn ? 'items-end' : 'items-start',
+              )}
+            >
+              {!isOwn && (isGroup || isEmail) && showName && (
+                <span className="mb-0.5 ml-1 block text-footnote text-muted">
+                  {message.from.name}
+                </span>
+              )}
+
+              <div className="relative flex items-center gap-1">
+                {/* Hover controls — only for real (sent) messages, hidden in select mode. */}
+                {actionable && !selectMode && (
                   <div
                     className={cn(
-                      "pop-in absolute bottom-full z-20 mb-1 flex items-center gap-1 rounded-full border border-line-strong bg-surface-2 px-2 py-1 shadow-lg",
-                      isOwn ? "right-0" : "left-0",
+                      'flex items-center gap-0.5 self-center opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100',
+                      menuOpen && 'opacity-100',
+                      isOwn ? 'order-first' : 'order-last',
                     )}
-                    onClick={(e) => e.stopPropagation()}
                   >
-                    {quickEmojis.map((emoji) => (
+                    {!deleted && (
                       <button
-                        key={emoji}
                         type="button"
-                        onClick={() => onPickEmoji(emoji)}
-                        className="text-[18px] hover:scale-125"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpenReact();
+                        }}
+                        className="rounded-full p-1 text-faint hover:text-ink"
+                        aria-label="React"
                       >
-                        {emoji}
+                        <SmilePlus className="h-4 w-4" />
                       </button>
-                    ))}
+                    )}
                     <button
-                      type="button"
-                      onClick={onOpenPicker}
-                      className="ml-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-surface-3 text-faint hover:text-ink"
-                      aria-label="More emoji"
-                    >
-                      <Plus className="h-4 w-4" />
-                    </button>
-                    {/* Reach the actions menu (Reply/Forward/…) on touch, where
-                        there's no hover affordance for the ⋮ button. */}
-                    <button
+                      ref={menuBtnRef}
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
                         onToggleMenu();
                       }}
-                      className="flex h-6 w-6 items-center justify-center rounded-full bg-surface-3 text-faint hover:text-ink"
+                      className="rounded-full p-1 text-faint hover:text-ink"
                       aria-label="Message actions"
                     >
                       <MoreHorizontal className="h-4 w-4" />
                     </button>
                   </div>
                 )}
-              </>
-            )}
-          </div>
 
-          {/* Action menu (fixed-positioned portal, flips up/down by space). */}
-          {menuOpen && menuPos && (
-            <BubbleMenu
-              message={message}
-              isOwn={isOwn}
-              hasText={Boolean(text)}
-              pos={menuPos}
-              onAction={onAction}
-              onClose={onToggleMenu}
-            />
-          )}
+                <div
+                  ref={bubbleRef}
+                  role="button"
+                  tabIndex={0}
+                  onClick={selectMode ? undefined : onToggleTime}
+                  onContextMenu={(e) => {
+                    if (!actionable || selectMode) return;
+                    e.preventDefault();
+                    if (!menuOpen) onToggleMenu();
+                  }}
+                  onTouchStart={selectMode ? undefined : startPress}
+                  onTouchEnd={cancelPress}
+                  onTouchMove={cancelPress}
+                  className={cn(
+                    'relative cursor-pointer rounded-bubble px-3.5 py-2.5 text-body leading-snug',
+                    deleted
+                      ? 'bg-surface-2 text-faint'
+                      : isOwn
+                      ? ownColor
+                      : 'bg-surface-3 text-ink',
+                  )}
+                >
+                  {deleted ? (
+                    <span className="flex items-center gap-1.5 italic">
+                      <Ban className="h-3.5 w-3.5 shrink-0" />
+                      {text || 'This message was deleted'}
+                    </span>
+                  ) : (
+                    <>
+                      {atts.length > 0 && (
+                        <div className={cn(text ? 'mb-2' : '')}>
+                          <Attachments
+                            attachments={atts}
+                            messageId={message.id}
+                            isOwn={isOwn}
+                          />
+                        </div>
+                      )}
+                      {(() => {
+                        const previewUrl =
+                          text && !isEmail && message.withUrlPreview
+                            ? firstUrl(text)
+                            : null;
+                        // Whole message is just the URL → show only the rich card, not
+                        // the duplicated link text (native `isSingleURLMessage`).
+                        const single =
+                          !!previewUrl && text?.trim() === previewUrl;
+                        return (
+                          <>
+                            {text && !single ? (
+                              <MentionText
+                                text={text}
+                                mentions={message.mentions}
+                                isOwn={isOwn}
+                              />
+                            ) : null}
+                            {previewUrl ? (
+                              <LinkPreviewCard
+                                url={previewUrl}
+                                isOwn={isOwn}
+                                standalone={single}
+                              />
+                            ) : null}
+                          </>
+                        );
+                      })()}
+                      {!text && atts.length === 0 && (
+                        <span className="opacity-70">
+                          {isEmail ? '📧' : '—'}
+                        </span>
+                      )}
+
+                      {reactOpen && (
+                        <div
+                          className={cn(
+                            'pop-in absolute bottom-full z-20 mb-1 flex items-center gap-1 rounded-full border border-line-strong bg-surface-2 px-2 py-1 shadow-lg',
+                            isOwn ? 'right-0' : 'left-0',
+                          )}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {quickEmojis.map((emoji) => (
+                            <button
+                              key={emoji}
+                              type="button"
+                              onClick={() => onPickEmoji(emoji)}
+                              className="text-[18px] hover:scale-125"
+                            >
+                              {emoji}
+                            </button>
+                          ))}
+                          <button
+                            type="button"
+                            onClick={onOpenPicker}
+                            className="ml-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-surface-3 text-faint hover:text-ink"
+                            aria-label="More emoji"
+                          >
+                            <Plus className="h-4 w-4" />
+                          </button>
+                          {/* Reach the actions menu (Reply/Forward/…) on touch, where
+                        there's no hover affordance for the ⋮ button. */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onToggleMenu();
+                            }}
+                            className="flex h-6 w-6 items-center justify-center rounded-full bg-surface-3 text-faint hover:text-ink"
+                            aria-label="Message actions"
+                          >
+                            <MoreHorizontal className="h-4 w-4" />
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                {/* Action menu (fixed-positioned portal, flips up/down by space). */}
+                {menuOpen && menuPos && (
+                  <BubbleMenu
+                    message={message}
+                    isOwn={isOwn}
+                    hasText={Boolean(text)}
+                    pos={menuPos}
+                    onAction={onAction}
+                    onClose={onToggleMenu}
+                  />
+                )}
+              </div>
             </div>
           </div>
-          {/* Bracket connector linking the quote pill to the bubble — the
-              native [ / ] that ties a reply to what it answers. */}
-          {replied && !deleted && (
-            <span
-              aria-hidden
-              className={cn(
-                "my-3 w-3 shrink-0 self-stretch border-y-2",
-                isOwn
-                  ? "rounded-r-[10px] border-r-2"
-                  : "rounded-l-[10px] border-l-2",
-                repliedOwn
-                  ? isEmail
-                    ? "border-email-light/60"
-                    : "border-chat-light/60"
-                  : "border-[#888888]/60",
-              )}
-            />
-          )}
         </div>
-        </div>
-      </div>
       </SwipeToReply>
 
       {/* Meta (reactions / See original / time) BELOW the bubble, aligned under
           it — so the avatar sits next to the bubble, not next to "See original". */}
       <div
         className={cn(
-          "flex flex-col",
+          'flex flex-col',
           isOwn
-            ? "items-end"
+            ? 'items-end'
             : selectMode
-              ? "items-start pl-16"
-              : "items-start pl-9",
+            ? 'items-start pl-16'
+            : 'items-start pl-9',
         )}
       >
         {!deleted && (
@@ -866,15 +983,17 @@ function Bubble({
 
         {!deleted && statusLabels.length > 0 && (
           <div className="mt-0.5 px-1 text-micro text-faint">
-            {statusLabels.join(" • ")}
+            {statusLabels.join(' • ')}
           </div>
         )}
 
         {(showTime || showStatus) && (
           <span className="mt-0.5 flex items-center gap-1 px-1 text-micro text-faint">
-            {showTime && <span>{format(new Date(message.date), "h:mm a")}</span>}
+            {showTime && (
+              <span>{format(new Date(message.date), 'h:mm a')}</span>
+            )}
             {showStatus &&
-              (message.status === "failed" ? (
+              (message.status === 'failed' ? (
                 <button
                   type="button"
                   onClick={onRetry}
@@ -897,8 +1016,8 @@ function TypingIndicator({ names }: { names: string[] }) {
     names.length === 1
       ? `${names[0]} is typing`
       : names.length === 2
-        ? `${names[0]} and ${names[1]} are typing`
-        : "Several people are typing";
+      ? `${names[0]} and ${names[1]} are typing`
+      : 'Several people are typing';
   return (
     <div className="flex items-center gap-2 px-6 pb-1 text-caption text-faint">
       <span className="flex gap-0.5">
@@ -912,26 +1031,30 @@ function TypingIndicator({ names }: { names: string[] }) {
 }
 
 function InfoRow({ message }: { message: MailMessage }) {
-  const text = (message.text ?? "").replace(/^GROUP-PLACEHOLDER:/, "").trim();
-  return <div className="my-1 text-center text-caption text-faint">{text || "—"}</div>;
+  const text = (message.text ?? '').replace(/^GROUP-PLACEHOLDER:/, '').trim();
+  return (
+    <div className="my-1 text-center text-caption text-faint">
+      {text || '—'}
+    </div>
+  );
 }
 
 /** Parse a call info-message's text (literal markers shared across clients). */
 function parseCall(text?: string): {
-  dir: "incoming" | "outgoing" | "missed" | "declined" | "failed";
+  dir: 'incoming' | 'outgoing' | 'missed' | 'declined' | 'failed';
   video: boolean;
   duration?: string;
 } {
-  const raw = text ?? "";
+  const raw = text ?? '';
   const t = raw.toLowerCase();
-  const video = t.includes("video");
-  let dir: "incoming" | "outgoing" | "missed" | "declined" | "failed" =
-    "outgoing";
-  if (t.includes("missed")) dir = "missed";
-  else if (t.includes("declined")) dir = "declined";
-  else if (t.includes("failed")) dir = "failed";
-  else if (t.includes("incoming")) dir = "incoming";
-  const sep = raw.indexOf("•");
+  const video = t.includes('video');
+  let dir: 'incoming' | 'outgoing' | 'missed' | 'declined' | 'failed' =
+    'outgoing';
+  if (t.includes('missed')) dir = 'missed';
+  else if (t.includes('declined')) dir = 'declined';
+  else if (t.includes('failed')) dir = 'failed';
+  else if (t.includes('incoming')) dir = 'incoming';
+  const sep = raw.indexOf('•');
   const duration = sep >= 0 ? raw.slice(sep + 1).trim() : undefined;
   return { dir, video, duration };
 }
@@ -945,19 +1068,19 @@ function CallBubble({
   onCallBack: (video: boolean) => void;
 }) {
   const { dir, video, duration } = parseCall(message.text);
-  const danger = dir === "missed" || dir === "declined" || dir === "failed";
+  const danger = dir === 'missed' || dir === 'declined' || dir === 'failed';
   const label =
-    dir === "missed"
-      ? `Missed ${video ? "video " : ""}call`
-      : dir === "declined"
-        ? "Call declined"
-        : dir === "failed"
-          ? "Call failed"
-          : dir === "incoming"
-            ? `Incoming ${video ? "video " : ""}call`
-            : `Outgoing ${video ? "video " : ""}call`;
+    dir === 'missed'
+      ? `Missed ${video ? 'video ' : ''}call`
+      : dir === 'declined'
+      ? 'Call declined'
+      : dir === 'failed'
+      ? 'Call failed'
+      : dir === 'incoming'
+      ? `Incoming ${video ? 'video ' : ''}call`
+      : `Outgoing ${video ? 'video ' : ''}call`;
   const Icon = danger ? PhoneMissed : video ? Video : Phone;
-  const time = format(new Date(message.date), "h:mm a");
+  const time = format(new Date(message.date), 'h:mm a');
   return (
     <div className="my-1.5 flex justify-center">
       <button
@@ -968,15 +1091,15 @@ function CallBubble({
       >
         <span
           className={cn(
-            "flex h-7 w-7 items-center justify-center rounded-full",
-            danger ? "bg-accent/15 text-accent" : "bg-surface-3 text-ink",
+            'flex h-7 w-7 items-center justify-center rounded-full',
+            danger ? 'bg-accent/15 text-accent' : 'bg-surface-3 text-ink',
           )}
         >
           <Icon className="h-4 w-4" />
         </span>
         <span className="flex flex-col text-left leading-tight">
           <span
-            className={cn("font-semibold", danger ? "text-accent" : "text-ink")}
+            className={cn('font-semibold', danger ? 'text-accent' : 'text-ink')}
           >
             {label}
           </span>
@@ -1006,7 +1129,12 @@ export function ConversationView({
   recipientAddress?: string;
   isGroup?: boolean;
 }) {
-  const { data: fetched = [], isLoading, isError, error } = useThreadMessages(id);
+  const {
+    data: fetched = [],
+    isLoading,
+    isError,
+    error,
+  } = useThreadMessages(id);
   const { data: me } = useSession();
   const username = me?.username;
   const myUserId = me?.userId;
@@ -1057,9 +1185,10 @@ export function ConversationView({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   // Drag-and-drop file/image attach.
   const [dragging, setDragging] = useState(false);
-  const [confirm, setConfirm] = useState<
-    { kind: "forMe" | "forAll"; message: MailMessage } | null
-  >(null);
+  const [confirm, setConfirm] = useState<{
+    kind: 'forMe' | 'forAll';
+    message: MailMessage;
+  } | null>(null);
   const [groupPanelOpen, setGroupPanelOpen] = useState(false);
   const [profilePanelOpen, setProfilePanelOpen] = useState(false);
   // Email header → tap to reveal the participant list ("& N others" → who).
@@ -1090,7 +1219,7 @@ export function ConversationView({
 
   const loadOlder = useCallback(async () => {
     if (loadingOlderRef.current) return;
-    const cache = qc.getQueryData<MailMessage[]>(["messages", id]);
+    const cache = qc.getQueryData<MailMessage[]>(['messages', id]);
     const oldest = cache?.[0];
     if (!oldest?.id) return;
     loadingOlderRef.current = true;
@@ -1104,7 +1233,7 @@ export function ConversationView({
       // Anchor the viewport: record height now so the layout effect can offset
       // scrollTop by exactly the prepended content's height (no jump).
       olderAnchor.current = scrollRef.current?.scrollHeight ?? null;
-      qc.setQueryData<MailMessage[]>(["messages", id], (old) => {
+      qc.setQueryData<MailMessage[]>(['messages', id], (old) => {
         const seen = new Set((old ?? []).map((m) => m.id));
         const merged = [
           ...res.messages.filter((m) => !seen.has(m.id)),
@@ -1155,7 +1284,7 @@ export function ConversationView({
   // Async content growth (images loading, receipt labels) → re-pin if at bottom.
   useEffect(() => {
     const inner = contentRef.current;
-    if (!inner || typeof ResizeObserver === "undefined") return;
+    if (!inner || typeof ResizeObserver === 'undefined') return;
     const ro = new ResizeObserver(() => {
       const el = scrollRef.current;
       if (el && atBottomRef.current) el.scrollTop = el.scrollHeight;
@@ -1199,7 +1328,7 @@ export function ConversationView({
     const isFirst = ackedInboundRef.current === null;
     ackedInboundRef.current = lastInboundId;
     if (isFirst) return; // the open-thread effect above already handled mount
-    if (document.visibilityState !== "visible") return;
+    if (document.visibilityState !== 'visible') return;
     markThreadReadInCache(qc, { threadId: id, topicId });
     markThreadSeen(id).catch(() => {});
   }, [lastInboundId, id, topicId, qc]);
@@ -1293,7 +1422,7 @@ export function ConversationView({
   // the subject goes on row 2.
   const emailParticipants = useMemo<ThreadParticipant[]>(() => {
     if (!isEmail) return [];
-    const me = (currentUserAddress ?? "").toLowerCase();
+    const me = (currentUserAddress ?? '').toLowerCase();
     const seen = new Set<string>();
     const out: ThreadParticipant[] = [];
     const add = (p?: ThreadParticipant) => {
@@ -1314,7 +1443,7 @@ export function ConversationView({
   const emailTitle = useMemo(() => {
     if (!isEmail || emailParticipants.length === 0) return undefined;
     const first = emailParticipants[0];
-    const firstName = first.name?.trim() || localPart(first.address ?? "");
+    const firstName = first.name?.trim() || localPart(first.address ?? '');
     const remaining = emailParticipants.length - 1;
     return remaining === 0 ? firstName : `${firstName} & ${remaining} others`;
   }, [isEmail, emailParticipants]);
@@ -1345,9 +1474,12 @@ export function ConversationView({
       m.cc?.forEach(add);
     }
     if (currentUserAddress && !map.has(currentUserAddress.toLowerCase())) {
-      const full = [me?.firstName, me?.lastName].filter(Boolean).join(" ").trim();
+      const full = [me?.firstName, me?.lastName]
+        .filter(Boolean)
+        .join(' ')
+        .trim();
       map.set(currentUserAddress.toLowerCase(), {
-        name: full || username || "You",
+        name: full || username || 'You',
         address: currentUserAddress,
       });
     }
@@ -1356,8 +1488,10 @@ export function ConversationView({
 
   // Default recipients/subject for the composer "+" panel. The user can edit
   // these (To / Cc / Bcc / Subject) before sending; edits override the defaults.
-  const composerInitialTo = useMemo<{ name?: string; address: string }[]>(() => {
-    const self = (currentUserAddress ?? "").toLowerCase();
+  const composerInitialTo = useMemo<
+    { name?: string; address: string }[]
+  >(() => {
+    const self = (currentUserAddress ?? '').toLowerCase();
     if (isGroup)
       return groupMembers
         .filter((m) => m.address && m.address.toLowerCase() !== self)
@@ -1376,22 +1510,25 @@ export function ConversationView({
     currentUserAddress,
   ]);
   const composerInitialSubject =
-    isEmail && subject ? `Re: ${stripRe(subject)}` : "";
+    isEmail && subject ? `Re: ${stripRe(subject)}` : '';
 
   // Participants the @mention picker offers (others, by handle). @everyone is
   // available in groups + email threads (matches native).
   const mentionParticipants = useMemo<MentionParticipant[]>(() => {
-    const self = (currentUserAddress ?? "").toLowerCase();
+    const self = (currentUserAddress ?? '').toLowerCase();
     const src: ThreadParticipant[] = isGroup
       ? groupMembers
       : isEmail
-        ? emailParticipants
-        : recipient
-          ? [{ name: "", address: recipient }]
-          : [];
+      ? emailParticipants
+      : recipient
+      ? [{ name: '', address: recipient }]
+      : [];
     return src
       .filter((p) => p.address && p.address.toLowerCase() !== self)
-      .map((p) => ({ username: localPart(p.address as string), name: p.name || "" }));
+      .map((p) => ({
+        username: localPart(p.address as string),
+        name: p.name || '',
+      }));
   }, [
     isGroup,
     isEmail,
@@ -1405,7 +1542,7 @@ export function ConversationView({
   function doSend(localId: string, payload: SendMessageInput) {
     pendingPayloads.current.set(localId, payload);
     setSent((cur) =>
-      cur.map((m) => (m.id === localId ? { ...m, status: "sending" } : m)),
+      cur.map((m) => (m.id === localId ? { ...m, status: 'sending' } : m)),
     );
     sendMsg.mutate(payload, {
       onSuccess: () => {
@@ -1419,7 +1556,7 @@ export function ConversationView({
       },
       onError: () =>
         setSent((cur) =>
-          cur.map((m) => (m.id === localId ? { ...m, status: "failed" } : m)),
+          cur.map((m) => (m.id === localId ? { ...m, status: 'failed' } : m)),
         ),
     });
   }
@@ -1437,7 +1574,7 @@ export function ConversationView({
       // throws .windowExpired on save) — re-check before committing the PATCH.
       if (editing.date && !withinEditWindow(editing.date)) {
         setEditing(null);
-        toast("Edit window expired");
+        toast('Edit window expired');
         return;
       }
       msgActions.edit.mutate({ messageId: editing.id, text });
@@ -1454,7 +1591,7 @@ export function ConversationView({
       supportsMentionEveryone,
     );
     const localId =
-      typeof crypto !== "undefined" && "randomUUID" in crypto
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
         ? crypto.randomUUID()
         : `local-${localSeq.current++}`;
     setSent((cur) => [
@@ -1471,7 +1608,7 @@ export function ConversationView({
         mentions: mentions.length ? mentions : undefined,
         withUrlPreview: withUrlPreview || undefined,
         attachments: dtos.length ? dtosToMailAttachments(dtos) : undefined,
-        status: "sending",
+        status: 'sending',
       },
     ]);
     att.clear();
@@ -1480,7 +1617,7 @@ export function ConversationView({
     // (minus me). Without this, the FIRST messages (before anyone has replied,
     // so there's no inbound sender to borrow) go out with an empty toList and the
     // backend rejects them (SendMessageDto.toList is ArrayMinSize(1)) → "Failed".
-    const selfAddr = (currentUserAddress ?? "").toLowerCase();
+    const selfAddr = (currentUserAddress ?? '').toLowerCase();
     const groupTo = groupMembers
       .filter((m) => m.address && m.address.toLowerCase() !== selfAddr)
       .map((m) => ({ name: m.name, address: m.address as string }));
@@ -1488,17 +1625,19 @@ export function ConversationView({
       isGroup && groupTo.length
         ? groupTo
         : recipient
-          ? [{ address: recipient }]
-          : groupTo;
+        ? [{ address: recipient }]
+        : groupTo;
     // The "+" panel's recipients win when set; otherwise the thread defaults.
     const toList = recipients?.toList?.length ? recipients.toList : fallbackTo;
     const ccList = recipients?.ccList?.length ? recipients.ccList : undefined;
-    const bccList = recipients?.bccList?.length ? recipients.bccList : undefined;
+    const bccList = recipients?.bccList?.length
+      ? recipients.bccList
+      : undefined;
     const subjectToSend = recipients?.subject?.trim()
       ? recipients.subject.trim()
       : isEmail && subject
-        ? `Re: ${stripRe(subject)}`
-        : undefined;
+      ? `Re: ${stripRe(subject)}`
+      : undefined;
     doSend(localId, {
       refId: localId,
       text,
@@ -1527,11 +1666,11 @@ export function ConversationView({
       toast("Original message isn't loaded yet");
       return;
     }
-    el.scrollIntoView({ behavior: "smooth", block: "center" });
-    el.classList.remove("bubble-flash");
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.remove('bubble-flash');
     void el.offsetWidth; // restart the CSS animation
-    el.classList.add("bubble-flash");
-    window.setTimeout(() => el.classList.remove("bubble-flash"), 800);
+    el.classList.add('bubble-flash');
+    window.setTimeout(() => el.classList.remove('bubble-flash'), 800);
   }
 
   function retryMessage(localId: string) {
@@ -1551,40 +1690,40 @@ export function ConversationView({
       peerName: title,
       peerAddress: recipientAddress,
       callerId: myUserId,
-    }).catch(() => toast("Couldn't start the call", "error"));
+    }).catch(() => toast("Couldn't start the call", 'error'));
   }
 
   function onMessageAction(a: MsgAction, m: MailMessage) {
     switch (a) {
-      case "reply":
+      case 'reply':
         setEditing(null);
         setReplyingTo(m);
         break;
-      case "copy":
+      case 'copy':
         if (m.text)
           navigator.clipboard
             ?.writeText(m.text)
-            .then(() => toast("Copied"))
+            .then(() => toast('Copied'))
             .catch(() => {});
         break;
-      case "edit":
+      case 'edit':
         setReplyingTo(null);
-        setEditing({ id: m.id, text: m.text ?? "", date: m.date });
+        setEditing({ id: m.id, text: m.text ?? '', date: m.date });
         break;
-      case "forward":
+      case 'forward':
         // Enter multi-select with this message picked; the user can add more,
         // then hit Forward in the selection bar.
         setSelectMode(true);
         setSelectedIds(new Set([m.id]));
         break;
-      case "info":
+      case 'info':
         setInfoForId(m.id);
         break;
-      case "deleteForMe":
-        setConfirm({ kind: "forMe", message: m });
+      case 'deleteForMe':
+        setConfirm({ kind: 'forMe', message: m });
         break;
-      case "deleteForAll":
-        setConfirm({ kind: "forAll", message: m });
+      case 'deleteForAll':
+        setConfirm({ kind: 'forAll', message: m });
         break;
     }
   }
@@ -1609,19 +1748,17 @@ export function ConversationView({
     if (!picked.length) return;
     const fwdSubject =
       isEmail && subject
-        ? subject.toLowerCase().startsWith("fwd:")
+        ? subject.toLowerCase().startsWith('fwd:')
           ? subject
           : `Fwd: ${subject}`
-        : "";
+        : '';
     openCompose({
-      mode: "forward",
+      mode: 'forward',
       forwardMessageIds: picked.map((m) => m.id),
       forwardPreviews: picked.map((m) => ({
         id: m.id,
         author: m.from.name,
-        text:
-          m.text?.trim() ||
-          (m.attachments?.length ? "📎 Attachment" : "…"),
+        text: m.text?.trim() || (m.attachments?.length ? '📎 Attachment' : '…'),
       })),
       topicId,
       isEmail,
@@ -1633,7 +1770,7 @@ export function ConversationView({
   function runDelete() {
     if (!confirm) return;
     const m = confirm.message;
-    if (confirm.kind === "forMe") {
+    if (confirm.kind === 'forMe') {
       if (m.headerId) msgActions.deleteForMe.mutate([m.headerId]);
       // Local-only optimistic message: just drop it from the unsent list.
       else setSent((cur) => cur.filter((x) => x.id !== m.id));
@@ -1649,7 +1786,7 @@ export function ConversationView({
     messageId: string,
     update: (rs: MailReaction[]) => MailReaction[],
   ) {
-    qc.setQueryData<MailMessage[]>(["messages", id], (list) =>
+    qc.setQueryData<MailMessage[]>(['messages', id], (list) =>
       list
         ? list.map((msg) =>
             msg.id === messageId
@@ -1678,19 +1815,20 @@ export function ConversationView({
     }
   }
 
-  const backHref = "/inbox";
+  const backHref = '/inbox';
   const is1to1 = !isEmail && !isGroup && Boolean(recipientAddress);
 
   return (
     <div
       className="relative flex h-full flex-col"
       onDragOver={(e) => {
-        if (selectMode || !e.dataTransfer.types.includes("Files")) return;
+        if (selectMode || !e.dataTransfer.types.includes('Files')) return;
         e.preventDefault();
         if (!dragging) setDragging(true);
       }}
       onDragLeave={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragging(false);
+        if (!e.currentTarget.contains(e.relatedTarget as Node))
+          setDragging(false);
       }}
       onDrop={(e) => {
         if (selectMode) return;
@@ -1753,10 +1891,12 @@ export function ConversationView({
             (isEmail && emailParticipants.length >= 2) ? (
               <UserAvatar
                 name={headerTitle}
-                people={(isGroup ? groupMembers : emailParticipants).map((m) => ({
-                  name: m.name,
-                  address: m.address,
-                }))}
+                people={(isGroup ? groupMembers : emailParticipants).map(
+                  (m) => ({
+                    name: m.name,
+                    address: m.address,
+                  }),
+                )}
                 isEmail={isEmail}
                 size={36}
               />
@@ -1787,13 +1927,13 @@ export function ConversationView({
                   className="block max-w-full text-left"
                   title={emailParticipants
                     .map((p) => p.name || p.address)
-                    .join(", ")}
+                    .join(', ')}
                 >
                   <div className="truncate text-callout font-bold text-ink-strong">
                     {headerTitle}
                   </div>
                   <div className="truncate text-caption text-faint">
-                    Subject: {subject?.trim() || "(no subject)"}
+                    Subject: {subject?.trim() || '(no subject)'}
                   </div>
                 </button>
               ) : (
@@ -1814,7 +1954,7 @@ export function ConversationView({
                       >
                         {groupMembers.length
                           ? `${groupMembers.length} members · manage`
-                          : "Group chat"}
+                          : 'Group chat'}
                       </button>
                     )
                   ) : null}
@@ -1824,7 +1964,7 @@ export function ConversationView({
                 <div className="absolute left-0 top-full z-40 mt-1 max-h-72 w-72 overflow-y-auto rounded-xl border border-line-strong bg-surface-2 p-1 shadow-xl">
                   <div className="px-2 py-1 text-micro font-semibold uppercase tracking-wide text-faint">
                     {emailParticipants.length} participant
-                    {emailParticipants.length > 1 ? "s" : ""}
+                    {emailParticipants.length > 1 ? 's' : ''}
                   </div>
                   {emailParticipants.map((p) => (
                     <div
@@ -1832,7 +1972,7 @@ export function ConversationView({
                       className="flex items-center gap-2 rounded-lg px-2 py-1.5"
                     >
                       <UserAvatar
-                        name={p.name || localPart(p.address ?? "")}
+                        name={p.name || localPart(p.address ?? '')}
                         address={p.address}
                         isEmail
                         size={28}
@@ -1840,7 +1980,7 @@ export function ConversationView({
                       />
                       <div className="min-w-0">
                         <div className="truncate text-footnote text-ink">
-                          {p.name || localPart(p.address ?? "")}
+                          {p.name || localPart(p.address ?? '')}
                         </div>
                         <div className="truncate text-micro text-faint">
                           {p.address}
@@ -1858,7 +1998,7 @@ export function ConversationView({
             topicId={topicId}
             recipientName={title}
             recipientAddress={is1to1 ? recipientAddress : undefined}
-            className={is1to1 ? "ml-auto" : "ml-1"}
+            className={is1to1 ? 'ml-auto' : 'ml-1'}
           />
         )}
         {isGroup && (
@@ -1878,102 +2018,119 @@ export function ConversationView({
         onScroll={onScroll}
         className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden"
       >
-       <div
-        ref={contentRef}
-        className="flex min-h-full flex-col gap-2 px-6 py-4"
-        onClick={() => {
-          if (reactOpenId) setReactOpenId(null);
-          if (menuOpenId) setMenuOpenId(null);
-        }}
-      >
-        {loadingOlder && (
-          <div className="flex justify-center py-2">
-            <Loader2 className="h-4 w-4 animate-spin text-faint" />
-          </div>
-        )}
-        {isLoading ? (
-          <div className="flex flex-1 items-center justify-center text-faint">
-            <Loader2 className="h-5 w-5 animate-spin" />
-          </div>
-        ) : isError ? (
-          <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted">
-            {error instanceof ApiError &&
-            (error.status === 403 || error.status === 404)
-              ? "You don't have access to this conversation."
-              : "Couldn't load this conversation."}
-          </div>
-        ) : rows.length === 0 ? (
-          <div className="flex flex-1 items-center justify-center text-sm text-faint">
-            No messages yet.
-          </div>
-        ) : (
-          rows.map(({ m, isOwn, showAvatar, showName, dayChanged }) => (
-            // Key by refId when present so the optimistic bubble and its server
-            // echo share a key (refId === the local id) — React reuses the DOM
-            // node instead of remount→flicker on the sending→delivered swap.
-            <div key={m.refId || m.id}>
-              {dayChanged && (
-                <div className="my-2 text-center text-micro font-semibold uppercase tracking-wide text-faint">
-                  {dayLabel(new Date(m.date))}
-                </div>
-              )}
-              {m.isCall ? (
-                <CallBubble message={m} onCallBack={callBack} />
-              ) : m.isInfoMessage ? (
-                <InfoRow message={m} />
-              ) : (
-                <Bubble
-                  message={m}
-                  replied={m.replyTo ? byHeaderId.get(m.replyTo) : undefined}
-                  isOwn={isOwn}
-                  isEmail={isEmail}
-                  showAvatar={showAvatar}
-                  showName={showName}
-                  isGroup={isGroup}
-                  isLastOutbound={m.id === lastOutboundId}
-                  showTime={shownTimeId === m.id}
-                  myUserId={myUserId}
-                  selfAddress={currentUserAddress}
-                  quickEmojis={quickEmojis}
-                  reactOpen={reactOpenId === m.id}
-                  menuOpen={menuOpenId === m.id}
-                  selectMode={selectMode}
-                  selected={selectedIds.has(m.id)}
-                  onToggleSelect={() => toggleSelect(m.id)}
-                  onToggleTime={() =>
-                    setShownTimeId((cur) => (cur === m.id ? null : m.id))
-                  }
-                  onSeeOriginal={setOriginal}
-                  onOpenReact={() =>
-                    setReactOpenId((cur) => (cur === m.id ? null : m.id))
-                  }
-                  onToggleMenu={() => {
-                    setReactOpenId(null); // react bar and actions menu are exclusive
-                    setMenuOpenId((cur) => (cur === m.id ? null : m.id));
-                  }}
-                  onAction={(a) => onMessageAction(a, m)}
-                  onPickEmoji={(emoji) => {
-                    recordReact(emoji);
-                    toggleReaction(m, emoji);
-                    setReactOpenId(null);
-                  }}
-                  onOpenPicker={() => {
-                    setReactOpenId(null);
-                    setPickerForId(m.id);
-                  }}
-                  onOpenReactors={() => setReactorsForId(m.id)}
-                  onRetry={() => retryMessage(m.id)}
-                  onJumpReply={() =>
-                    jumpToMessage(
-                      m.replyTo ? byHeaderId.get(m.replyTo)?.id : undefined,
-                    )
-                  }
-                />
-              )}
+        <div
+          ref={contentRef}
+          // Groups get roomier bubble spacing; 1:1 / email keep the tighter gap.
+          className={cn(
+            'flex min-h-full flex-col px-6 py-4',
+            isGroup ? 'gap-3' : 'gap-2',
+          )}
+          onClick={() => {
+            if (reactOpenId) setReactOpenId(null);
+            if (menuOpenId) setMenuOpenId(null);
+          }}
+        >
+          {loadingOlder && (
+            <div className="flex justify-center py-2">
+              <Loader2 className="h-4 w-4 animate-spin text-faint" />
             </div>
-          ))
-        )}
-       </div>
+          )}
+          {isLoading ? (
+            <div className="flex flex-1 items-center justify-center text-faint">
+              <Loader2 className="h-5 w-5 animate-spin" />
+            </div>
+          ) : isError ? (
+            <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted">
+              {error instanceof ApiError &&
+              (error.status === 403 || error.status === 404)
+                ? "You don't have access to this conversation."
+                : "Couldn't load this conversation."}
+            </div>
+          ) : rows.length === 0 ? (
+            <div className="flex flex-1 items-center justify-center text-sm text-faint">
+              No messages yet.
+            </div>
+          ) : (
+            rows.map(
+              (
+                { m, isOwn, showAvatar, showName, dayChanged, startsRun },
+                i,
+              ) => (
+                // Key by refId when present so the optimistic bubble and its server
+                // echo share a key (refId === the local id) — React reuses the DOM
+                // node instead of remount→flicker on the sending→delivered swap.
+                <div
+                  key={m.refId || m.id}
+                  // Group chats only: extra space above a new sender's run (or a
+                  // >60s gap) so different people read clearly; one sender's
+                  // consecutive messages stay grouped tighter. 1:1 is untouched.
+                  className={cn(isGroup && startsRun && i > 0 && 'mt-2')}
+                >
+                  {dayChanged && (
+                    <div className="my-2 text-center text-micro font-semibold uppercase tracking-wide text-faint">
+                      {dayLabel(new Date(m.date))}
+                    </div>
+                  )}
+                  {m.isCall ? (
+                    <CallBubble message={m} onCallBack={callBack} />
+                  ) : m.isInfoMessage ? (
+                    <InfoRow message={m} />
+                  ) : (
+                    <Bubble
+                      message={m}
+                      replied={
+                        m.replyTo ? byHeaderId.get(m.replyTo) : undefined
+                      }
+                      isOwn={isOwn}
+                      isEmail={isEmail}
+                      showAvatar={showAvatar}
+                      showName={showName}
+                      isGroup={isGroup}
+                      isLastOutbound={m.id === lastOutboundId}
+                      showTime={shownTimeId === m.id}
+                      myUserId={myUserId}
+                      selfAddress={currentUserAddress}
+                      quickEmojis={quickEmojis}
+                      reactOpen={reactOpenId === m.id}
+                      menuOpen={menuOpenId === m.id}
+                      selectMode={selectMode}
+                      selected={selectedIds.has(m.id)}
+                      onToggleSelect={() => toggleSelect(m.id)}
+                      onToggleTime={() =>
+                        setShownTimeId((cur) => (cur === m.id ? null : m.id))
+                      }
+                      onSeeOriginal={setOriginal}
+                      onOpenReact={() =>
+                        setReactOpenId((cur) => (cur === m.id ? null : m.id))
+                      }
+                      onToggleMenu={() => {
+                        setReactOpenId(null); // react bar and actions menu are exclusive
+                        setMenuOpenId((cur) => (cur === m.id ? null : m.id));
+                      }}
+                      onAction={(a) => onMessageAction(a, m)}
+                      onPickEmoji={(emoji) => {
+                        recordReact(emoji);
+                        toggleReaction(m, emoji);
+                        setReactOpenId(null);
+                      }}
+                      onOpenPicker={() => {
+                        setReactOpenId(null);
+                        setPickerForId(m.id);
+                      }}
+                      onOpenReactors={() => setReactorsForId(m.id)}
+                      onRetry={() => retryMessage(m.id)}
+                      onJumpReply={() =>
+                        jumpToMessage(
+                          m.replyTo ? byHeaderId.get(m.replyTo)?.id : undefined,
+                        )
+                      }
+                    />
+                  )}
+                </div>
+              ),
+            )
+          )}
+        </div>
       </div>
 
       {typingNames.length > 0 && <TypingIndicator names={typingNames} />}
@@ -2036,25 +2193,25 @@ export function ConversationView({
         open={confirm !== null}
         danger
         title={
-          confirm?.kind === "forAll"
-            ? "Unsend for everyone?"
+          confirm?.kind === 'forAll'
+            ? 'Unsend for everyone?'
             : confirm?.message.headerId
-              ? "Delete for you?"
-              : "Discard message?"
+            ? 'Delete for you?'
+            : 'Discard message?'
         }
         body={
-          confirm?.kind === "forAll"
-            ? "This message will be removed for everyone in the conversation."
+          confirm?.kind === 'forAll'
+            ? 'This message will be removed for everyone in the conversation.'
             : confirm?.message.headerId
-              ? "This removes the message from your view only."
-              : "This unsent message will be discarded."
+            ? 'This removes the message from your view only.'
+            : 'This unsent message will be discarded.'
         }
         confirmLabel={
-          confirm?.kind === "forAll"
-            ? "Unsend"
+          confirm?.kind === 'forAll'
+            ? 'Unsend'
             : confirm?.message.headerId
-              ? "Delete"
-              : "Discard"
+            ? 'Delete'
+            : 'Discard'
         }
         onConfirm={runDelete}
         onCancel={() => setConfirm(null)}

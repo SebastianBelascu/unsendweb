@@ -62,7 +62,10 @@ interface SendResult {
  * href ThreadCard builds: route segment = the sender's threadId, topicId + the
  * header bits go in the query). Returns null if the response lacks the ids.
  */
-function threadUrlFromResponse(data: unknown, toR: Recipient[]): string | null {
+export function threadUrlFromResponse(
+  data: unknown,
+  toR: Recipient[],
+): string | null {
   const r = (data ?? {}) as SendResult;
   const threadId = r.threadId ?? r._id;
   const topicId = r.topicId;
@@ -370,7 +373,7 @@ export function Composer({
       </div>
 
       <div className="border-t border-line">
-        <AttachmentTray items={att.pending} onRemove={att.remove} />
+        <AttachmentTray items={att.pending} onRemove={att.remove} isEmail={isEmail} />
         <footer className="relative flex items-center gap-3 px-4 py-3">
           <AttachMenu onFiles={att.addFiles} />
           <VoiceRecorder

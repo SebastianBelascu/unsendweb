@@ -33,7 +33,8 @@ export function InboxShell({ children }: { children: React.ReactNode }) {
 
   const inThread =
     /^\/(?:chat|mail\/thread)\//.test(pathname) ||
-    pathname.startsWith("/mail/compose");
+    pathname.startsWith("/mail/compose") ||
+    pathname.startsWith("/compose");
   const isSettings = pathname.startsWith("/settings");
   const showList = !isSettings;
   const activeId = pathname.match(/^\/(?:chat|mail\/thread)\/([^/?]+)/)?.[1];

@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Inbox, Mail, MessageCircle, Phone, Settings, Users } from "lucide-react";
 import { NAV_SECTIONS, type NavSection } from "@/lib/inbox-view";
+import { useNavBadges } from "@/lib/nav-badges";
+import { NavBadge } from "./NavBadge";
 import { cn } from "@/lib/utils";
 
 // Compact mobile labels + icons, keyed by section (kept in sync with NAV_SECTIONS).
@@ -25,6 +27,7 @@ export function BottomTabBar({
 }) {
   const pathname = usePathname();
   const isSettings = pathname.startsWith("/settings");
+  const badges = useNavBadges();
 
   return (
     <nav className="flex items-stretch border-t border-line bg-surface lg:hidden">
@@ -41,7 +44,13 @@ export function BottomTabBar({
               active ? "text-accent" : "text-faint",
             )}
           >
-            <Icon className="h-5 w-5" />
+            <span className="relative">
+              <Icon className="h-5 w-5" />
+              <NavBadge
+                count={badges[s.key]}
+                className="absolute -right-2.5 -top-1.5"
+              />
+            </span>
             {label}
           </button>
         );
