@@ -2,6 +2,52 @@ import { apiSend } from "./http";
 
 const KEY = "unsend.web.deviceId";
 
+/** Convert a URL-safe base64 string (VAPID public key) to a Uint8Array. */
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding)
+    .replace(/-/g, "+")
+    .replace(/_/g, "/");
+  const raw = atob(base64);
+  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+}
+
+/**
+ * Register the service worker and subscribe to Web Push.
+ * Returns the PushSubscription or null if not supported / permission denied.
+ */
+async function subscribeToPush(): Promise<PushSubscription | null> {
+  if (typeof window === "undefined") return null;
+  if (!("serviceWorker" in navigator) || !("PushManager" in window))
+    return null;
+
+  try {
+    const registration = await navigator.serviceWorker.register("/sw.js", {
+      scope: "/",
+    });
+    await navigator.serviceWorker.ready;
+
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") return null;
+
+    // Fetch VAPID public key from backend
+    const res = await fetch("/api/backend/devices/vapid-public-key");
+    const { publicKey } = await res.json();
+    if (!publicKey) return null;
+
+    const existing = await registration.pushManager.getSubscription();
+    if (existing) return existing;
+
+    return await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(publicKey),
+    });
+  } catch (err) {
+    console.warn("[push] subscribe failed:", err);
+    return null;
+  }
+}
+
 /**
  * Stable per-browser device id. The backend's JWT-with-device guard expects a
  * deviceId on login/refresh (see context/04-auth-sessions-deviceid.md).
@@ -56,22 +102,34 @@ function describeDevice(): { name: string; os: string; osVersion: string } {
 const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? "0.1.0";
 
 /**
- * Upsert this browser as a device so Settings shows a real name instead of the
- * "Pending"/"unknown" stub the login flow creates. Idempotent (sparse upsert).
- * deviceToken is required by the DTO; the web has no push token, so a stable
- * synthetic value is sent (web never receives push).
+ * Upsert this browser as a device and subscribe to Web Push notifications.
+ * Idempotent (sparse upsert). When push permission is granted, the real
+ * subscription endpoint replaces the legacy synthetic token so the backend
+ * can deliver notifications via the Web Push API (VAPID).
  */
 export async function registerDevice(): Promise<void> {
   const deviceId = getDeviceId();
   const { name, os, osVersion } = describeDevice();
+
+  const subscription = await subscribeToPush();
+  const sub = subscription?.toJSON() as
+    | { endpoint: string; keys: { p256dh: string; auth: string } }
+    | undefined;
+
   await apiSend("/devices", "POST", {
     deviceId,
-    deviceToken: `web-${deviceId}`,
+    deviceToken: sub?.endpoint ?? `web-${deviceId}`,
     deviceName: name,
     deviceType: "web",
     deviceOs: os,
     deviceOsVersion: osVersion || undefined,
     deviceAppVersion: APP_VERSION,
+    ...(sub
+      ? {
+          pushPlatform: "web",
+          webPushSubscription: { endpoint: sub.endpoint, keys: sub.keys },
+        }
+      : {}),
   });
 }
 
