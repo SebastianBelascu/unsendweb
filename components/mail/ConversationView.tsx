@@ -574,6 +574,13 @@ function Bubble({
   // accent (purple/green) when you're quoting yourself, neutral grey otherwise.
   const repliedOwn =
     Boolean(replied) && (replied?.from.address ?? '').toLowerCase() === me;
+  // The quote sits with the reply ONLY when you reply to YOURSELF (same author);
+  // replying to someone else puts the quote on the opposite side.
+  const sameAuthor =
+    Boolean(replied) &&
+    (replied?.from.address ?? '').toLowerCase() ===
+      (message.from.address ?? '').toLowerCase();
+  const quoteRight = sameAuthor ? isOwn : !isOwn;
   // When the quoted message is a photo/video, the reply preview shows its
   // thumbnail (not "📎 attachment" text).
   const repliedImg = replied?.attachments?.find((a) => {
@@ -610,9 +617,27 @@ function Bubble({
       // bottom-outer corner and curls toward the reply — it comes FROM the
       // quote (the opposite direction). Own reply → quote on the LEFT, curls
       // down-right; inbound reply → quote on the RIGHT, curls down-left.
-      const ox = (isOwn ? q.left : q.right) - w.left;
+      // Cross-reply: hook on the quote's OUTER edge, curling toward the centre.
+      // Self-reply (quote stacked above the reply on the SAME side): hook on the
+      // INNER edge instead, so it sits in open space and isn't cramped against
+      // the bubble's outer edge.
+      const hookRight = sameAuthor ? !quoteRight : quoteRight;
       const oy = q.bottom - w.top;
-      const sweep = isOwn ? 1 : -1;
+      const sweep = hookRight ? -1 : 1;
+      const bubEl = bubbleRef.current;
+      // Cross-reply: hook on the quote's edge. Self-reply: the reply bubble can
+      // be far wider than the quote, so anchor the hook at the bubble's INNER
+      // (front) edge — calculated from the bubble — so it sits in front of the
+      // bubble, not floating by the narrow quote.
+      let ox: number;
+      if (sameAuthor && bubEl) {
+        const b = bubEl.getBoundingClientRect();
+        // Sit one radius OUTSIDE the bubble's front edge so the curl ends right
+        // at the edge — never over the text inside.
+        ox = (quoteRight ? b.left - r : b.right + r) - w.left;
+      } else {
+        ox = (hookRight ? q.right : q.left) - w.left;
+      }
       const down = 10; // how far it drops before curling (kept short — sits high)
       const d = `M ${ox} ${oy} L ${ox} ${oy + down} Q ${ox} ${oy + down + r} ${ox + sweep * r} ${oy + down + r}`;
       setConnPath({ w: w.width, h: w.height, d });
@@ -621,7 +646,7 @@ function Bubble({
     const ro = new ResizeObserver(measure);
     ro.observe(wrap);
     return () => ro.disconnect();
-  }, [replied, message.isDeleted, isOwn, showAvatar]);
+  }, [replied, message.isDeleted, quoteRight, sameAuthor]);
 
   const bcc = message.bcc ?? [];
   const bccContext =
@@ -692,7 +717,15 @@ function Bubble({
           )}
           {replied && !deleted && (
             <div
-              className={cn('flex', isOwn ? 'justify-start' : 'justify-end')}
+              className={cn(
+                'flex',
+                // Same author (self-reply) → quote on the reply's side; different
+                // author → opposite side.
+                quoteRight ? 'justify-end' : 'justify-start',
+                // Inbound self-reply: the bubble is pushed right by the avatar,
+                // so offset the quote to line up with it.
+                !isOwn && !quoteRight && 'pl-9',
+              )}
             >
               <button
                 ref={quoteRef}
@@ -719,17 +752,17 @@ function Bubble({
                       className="h-9 w-9 shrink-0 rounded-md object-cover"
                     />
                   )}
-                  <div className="min-w-0">
-                    {(isGroup || isEmail) && (
-                      <div className="truncate text-caption font-bold leading-tight text-white/60">
-                        {replied.from.name}
-                      </div>
-                    )}
-                    {(replied.text?.trim() || !repliedImg) && (
+                  {/* For a photo reply, just the thumbnail — no name/text (cleaner).
+                      Otherwise the (optional) sender name + the text preview. */}
+                  {(!repliedImg || replied.text?.trim()) && (
+                    <div className="min-w-0">
+                      {(isGroup || isEmail) && !repliedImg && (
+                        <div className="truncate text-caption font-bold leading-tight text-white/60">
+                          {replied.from.name}
+                        </div>
+                      )}
                       <div
                         className={cn(
-                          // Quoted text in the accent (purple chat / green email)
-                          // so the preview stands out — the outline stays.
                           'truncate text-subhead leading-tight',
                           isEmail ? 'text-email-light' : 'text-chat-light',
                         )}
@@ -737,8 +770,8 @@ function Bubble({
                         {replied.text?.trim() ||
                           (replied.attachments?.length ? '📎 attachment' : '…')}
                       </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
               </button>
             </div>
