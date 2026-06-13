@@ -3,16 +3,16 @@
 import { useRouter } from "next/navigation";
 import { UserAvatar } from "@/components/mail/UserAvatar";
 import { useSearchPeople } from "@/lib/api/search";
-import { useChatThreads } from "@/lib/api/threads";
-import { useComposeModal } from "@/lib/compose-modal";
-import { chatHref, findDmThread } from "@/lib/chat-href";
+import { useAllThreadsMeta, useInboxThreads } from "@/lib/api/threads";
+import { chatHref, findDmThread, newChatHref } from "@/lib/chat-href";
 
 /*
   "People" section of universal search — surfaces contacts + platform users
   matching the query (even with no existing thread), so search finds people, not
-  just open conversations. Tapping one OPENS the existing chat thread (the goal)
-  and only falls back to compose when there's no thread yet. Rendered above the
-  filtered conversation list while searching.
+  just open conversations. Tapping one OPENS the existing chat thread (with its
+  history) when one exists, else a fresh conversation view with the composer —
+  never the old compose modal. Rendered above the filtered conversation list
+  while searching.
 */
 export function SearchPeople({
   query,
@@ -22,15 +22,18 @@ export function SearchPeople({
   selfUsername?: string;
 }) {
   const people = useSearchPeople(query, selfUsername);
-  const { data: chats } = useChatThreads();
-  const openCompose = useComposeModal((s) => s.open);
+  // Resolve against the FULL thread set (not just inbox page-1) so an existing
+  // conversation — even an old one — opens with its history instead of a blank
+  // compose; fall back to inbox page-1 until the full set loads.
+  const { data: allThreads } = useAllThreadsMeta();
+  const { data: inbox } = useInboxThreads();
+  const resolveSource = allThreads ?? inbox;
   const router = useRouter();
   if (people.length === 0) return null;
 
-  function openPerson(address: string) {
-    const dm = findDmThread(chats, address);
-    if (dm) router.push(chatHref(dm, selfUsername));
-    else openCompose({ isEmail: false, to: address });
+  function openPerson(address: string, name: string) {
+    const dm = findDmThread(resolveSource, address);
+    router.push(dm ? chatHref(dm, selfUsername) : newChatHref(address, name));
   }
 
   return (
@@ -42,7 +45,7 @@ export function SearchPeople({
         <button
           key={p.address}
           type="button"
-          onClick={() => openPerson(p.address)}
+          onClick={() => openPerson(p.address, p.name)}
           className="flex w-full items-center gap-3 px-4 py-2 text-left transition-colors hover:bg-surface-2"
         >
           <UserAvatar

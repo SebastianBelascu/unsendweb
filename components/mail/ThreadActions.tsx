@@ -6,6 +6,8 @@ import { type InfiniteData, useQueryClient } from "@tanstack/react-query";
 import {
   BellOff,
   Bookmark,
+  CheckSquare,
+  ListChecks,
   MoreHorizontal,
   Pin,
   RotateCcw,
@@ -74,9 +76,15 @@ function actionsFor(thread: ThreadListItem, filter: MailFilter): ActionItem[] {
 export function ThreadActions({
   thread,
   filter,
+  onSelect,
+  onSelectAll,
 }: {
   thread: ThreadListItem;
   filter: MailFilter;
+  /** Enter multi-select mode with this row checked. */
+  onSelect?: (id: string) => void;
+  /** Enter multi-select mode with every visible row checked. */
+  onSelectAll?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -107,7 +115,8 @@ export function ThreadActions({
     const r = btnRef.current?.getBoundingClientRect();
     if (r) {
       // Estimate menu height to flip upward when there's no room below.
-      const estimated = items.length * 38 + 16;
+      const selectRows = (onSelect ? 1 : 0) + (onSelectAll ? 1 : 0);
+      const estimated = (items.length + selectRows) * 38 + 16;
       const below = window.innerHeight - r.bottom;
       const top = below < estimated ? r.top - estimated - 4 : r.bottom + 4;
       setPos({ top: Math.max(8, top), right: window.innerWidth - r.right });
@@ -158,6 +167,41 @@ export function ThreadActions({
               style={{ top: pos.top, right: pos.right }}
               onClick={(e) => e.stopPropagation()}
             >
+              {(onSelect || onSelectAll) && (
+                <>
+                  {onSelect && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onSelect(thread.id);
+                        setOpen(false);
+                      }}
+                      className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-footnote text-ink hover:bg-surface-3"
+                    >
+                      <CheckSquare className="h-4 w-4 text-faint" />
+                      Select
+                    </button>
+                  )}
+                  {onSelectAll && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onSelectAll();
+                        setOpen(false);
+                      }}
+                      className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-footnote text-ink hover:bg-surface-3"
+                    >
+                      <ListChecks className="h-4 w-4 text-faint" />
+                      Select all
+                    </button>
+                  )}
+                  <div className="my-1 border-t border-line" />
+                </>
+              )}
               {items.map((it) => {
                 const Icon = it.icon;
                 return (

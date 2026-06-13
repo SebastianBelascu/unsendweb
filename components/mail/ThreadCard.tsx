@@ -22,6 +22,8 @@ export function ThreadCard({
   selecting = false,
   selected = false,
   onToggleSelect,
+  onEnterSelect,
+  onSelectAll,
 }: {
   thread: ThreadListItem;
   filter?: MailFilter;
@@ -30,6 +32,8 @@ export function ThreadCard({
   selecting?: boolean;
   selected?: boolean;
   onToggleSelect?: () => void;
+  onEnterSelect?: (id: string) => void;
+  onSelectAll?: () => void;
 }) {
   const others = otherParticipants(thread.participants, currentUsername);
   const unread = thread.unread;
@@ -218,7 +222,12 @@ export function ThreadCard({
       {filter && !selecting && (
         // Always reachable on touch (no hover); hover-revealed on desktop.
         <div className="absolute right-1.5 top-1/2 -translate-y-1/2 opacity-100 transition-opacity lg:opacity-0 lg:focus-within:opacity-100 lg:group-hover:opacity-100">
-          <ThreadActions thread={thread} filter={filter} />
+          <ThreadActions
+            thread={thread}
+            filter={filter}
+            onSelect={onEnterSelect}
+            onSelectAll={onSelectAll}
+          />
         </div>
       )}
     </div>

@@ -151,6 +151,30 @@ export function useInboxThreads() {
   });
 }
 
+/**
+ * EVERY thread the user has (lightweight metadata, no inbox/spam/deleted
+ * filter, up to 10k), via GET /threads/metadata. Used only to RESOLVE the
+ * existing conversation for a contact when tapping them — the inbox page-1
+ * (useInboxThreads) misses older threads, which made a contact tap open a
+ * blank compose even though history existed (it only surfaced after sending,
+ * once the backend re-resolved the canonical thread). This mirrors what native
+ * keeps locally. Cached for several minutes; runs only where it's consumed
+ * (Contacts / search), not on every page.
+ */
+export async function fetchAllThreadsMeta(): Promise<ThreadListItem[]> {
+  const res = await apiGet<ThreadsResponse>(`/threads/metadata`);
+  return (res?.data ?? []).map(mapThread);
+}
+
+export function useAllThreadsMeta(enabled = true) {
+  return useQuery({
+    queryKey: ["threads", "allMeta"],
+    queryFn: fetchAllThreadsMeta,
+    enabled,
+    staleTime: 5 * 60_000,
+  });
+}
+
 export async function fetchThreadParticipants(
   threadId: string,
 ): Promise<ThreadParticipant[]> {
@@ -235,6 +259,31 @@ const FLAG_KEY: Record<string, keyof ThreadListItem> = {
   isSpam: "isSpam",
   isDeleted: "isDeleted",
 };
+
+/**
+ * Bulk variant of useThreadAction: apply one flag change to many threads at
+ * once (the inbox multi-select toolbar). updateThreads already accepts an array
+ * of ids; we just refresh every thread list afterwards (deleted/spam removals
+ * and pin/bucket moves all need the lists re-derived).
+ */
+export function useBulkThreadAction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      ids,
+      updateType,
+      update,
+    }: {
+      ids: string[];
+      updateType: string;
+      update: boolean;
+    }) => updateThreads(ids, updateType, update),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["threads"] });
+      qc.invalidateQueries({ queryKey: ["chatThreads"] });
+    },
+  });
+}
 
 export function useThreadAction(filter: MailFilter) {
   const qc = useQueryClient();

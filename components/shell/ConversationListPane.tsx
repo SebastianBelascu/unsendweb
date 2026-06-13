@@ -1,7 +1,18 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Info, Loader2, PenSquare, Search, X } from 'lucide-react';
+import {
+  BellOff,
+  Bookmark,
+  Info,
+  Loader2,
+  PenSquare,
+  RotateCcw,
+  Search,
+  ShieldAlert,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { ThreadsList } from '@/components/mail/ThreadsList';
 import { CallsList } from '@/components/calls/CallsList';
 import { ContactsPane } from '@/components/contacts/ContactsPane';
@@ -10,7 +21,11 @@ import { SyncStatus } from '@/components/mail/SyncStatus';
 import { SearchField } from '@/components/ui/SearchField';
 import { IconButton } from '@/components/ui/IconButton';
 import { Chip } from '@/components/ui/Chip';
-import { usePinnedThreads, useThreadsInfinite } from '@/lib/api/threads';
+import {
+  useBulkThreadAction,
+  usePinnedThreads,
+  useThreadsInfinite,
+} from '@/lib/api/threads';
 import { useSession } from '@/lib/api/account';
 import { useDraftStore } from '@/lib/drafts';
 import { useRouter } from 'next/navigation';
@@ -26,6 +41,35 @@ import {
   type NavSection,
 } from '@/lib/inbox-view';
 import { cn } from '@/lib/utils';
+import type { MailFilter } from '@/lib/types';
+
+/** Bulk-action toolbar buttons for the current bucket (multi-select mode). */
+function bulkActionsFor(
+  f: MailFilter,
+): { label: string; Icon: typeof Bookmark; updateType: string; update: boolean }[] {
+  if (f === 'deleted')
+    return [
+      { label: 'Restore', Icon: RotateCcw, updateType: 'isDeleted', update: false },
+    ];
+  if (f === 'spam')
+    return [
+      { label: 'Not spam', Icon: ShieldAlert, updateType: 'isSpam', update: false },
+      { label: 'Delete', Icon: Trash2, updateType: 'isDeleted', update: true },
+    ];
+  if (f === 'bookmarks')
+    return [
+      { label: 'Remove bookmark', Icon: Bookmark, updateType: 'isBookmarked', update: false },
+      { label: 'Mute', Icon: BellOff, updateType: 'isSilent', update: true },
+      { label: 'Delete', Icon: Trash2, updateType: 'isDeleted', update: true },
+    ];
+  // inbox / promotions
+  return [
+    { label: 'Bookmark', Icon: Bookmark, updateType: 'isBookmarked', update: true },
+    { label: 'Mute', Icon: BellOff, updateType: 'isSilent', update: true },
+    { label: 'Mark as spam', Icon: ShieldAlert, updateType: 'isSpam', update: true },
+    { label: 'Delete', Icon: Trash2, updateType: 'isDeleted', update: true },
+  ];
+}
 
 /**
  * Conversation list (middle pane). The left rail picks the `section`; chips pick
@@ -112,6 +156,44 @@ export function ConversationListPane({
         ),
     );
   }, [all, query]);
+
+  // Multi-select (entered from a row's ⋮ → Select / Select all). Selection is
+  // scoped to the current bucket; switching section/filter clears it.
+  const [selecting, setSelecting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const bulk = useBulkThreadAction();
+  useEffect(() => {
+    setSelecting(false);
+    setSelectedIds(new Set());
+  }, [section, effectiveFilter]);
+
+  const allSelected =
+    threads.length > 0 && selectedIds.size >= threads.length;
+  function enterSelect(id: string) {
+    setSelecting(true);
+    setSelectedIds(new Set([id]));
+  }
+  function selectAllVisible() {
+    setSelecting(true);
+    setSelectedIds(new Set(threads.map((t) => t.id)));
+  }
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function cancelSelect() {
+    setSelecting(false);
+    setSelectedIds(new Set());
+  }
+  function runBulk(updateType: string, update: boolean) {
+    if (selectedIds.size === 0) return;
+    bulk.mutate({ ids: [...selectedIds], updateType, update });
+    cancelSelect();
+  }
 
   const sentinel = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -216,36 +298,74 @@ export function ConversationListPane({
   return (
     <div className="flex h-full flex-col">
       <header className="flex flex-col gap-3 border-b border-line px-4 pb-3 pt-4">
-        <div className="flex items-center gap-2">
-          <h1 className="text-title font-bold text-ink-strong">{title}</h1>
-          <SyncStatus />
-          <div className="ml-auto flex items-center gap-1">
-            <IconButton
-              label={searchOpen ? 'Close search' : 'Search'}
-              variant="surface"
-              size={38}
-              onClick={toggleSearch}
+        {selecting ? (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={cancelSelect}
+              aria-label="Cancel selection"
+              className="rounded-lg p-1.5 text-muted hover:bg-surface hover:text-ink"
             >
-              {searchOpen ? (
-                <X className="h-4 w-4" />
-              ) : (
-                <Search className="h-4 w-4" />
-              )}
-            </IconButton>
+              <X className="h-5 w-5" />
+            </button>
+            <span className="text-headline font-semibold text-ink-strong">
+              {selectedIds.size} selected
+            </span>
             <button
               type="button"
               onClick={() =>
-                router.push(`/compose?type=${composeEmail ? 'email' : 'chat'}`)
+                allSelected ? setSelectedIds(new Set()) : selectAllVisible()
               }
-              aria-label="Compose"
-              title="Compose"
-              className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-full bg-accent text-white transition-colors hover:opacity-90"
+              className="ml-1 rounded-pill bg-surface-2 px-3 py-1 text-footnote font-medium text-ink hover:bg-surface-3"
             >
-              <PenSquare className="h-4 w-4" />
+              {allSelected ? 'Deselect all' : 'Select all'}
             </button>
+            <div className="ml-auto flex items-center gap-1">
+              {bulkActionsFor(backendFilter).map((a) => (
+                <IconButton
+                  key={a.label}
+                  label={a.label}
+                  variant="surface"
+                  size={38}
+                  onClick={() => runBulk(a.updateType, a.update)}
+                >
+                  <a.Icon className="h-4 w-4" />
+                </IconButton>
+              ))}
+            </div>
           </div>
-        </div>
-        {searchOpen && (
+        ) : (
+          <div className="flex items-center gap-2">
+            <h1 className="text-title font-bold text-ink-strong">{title}</h1>
+            <SyncStatus />
+            <div className="ml-auto flex items-center gap-1">
+              <IconButton
+                label={searchOpen ? 'Close search' : 'Search'}
+                variant="surface"
+                size={38}
+                onClick={toggleSearch}
+              >
+                {searchOpen ? (
+                  <X className="h-4 w-4" />
+                ) : (
+                  <Search className="h-4 w-4" />
+                )}
+              </IconButton>
+              <button
+                type="button"
+                onClick={() =>
+                  router.push(`/compose?type=${composeEmail ? 'email' : 'chat'}`)
+                }
+                aria-label="Compose"
+                title="Compose"
+                className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-full bg-accent text-white transition-colors hover:opacity-90"
+              >
+                <PenSquare className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        )}
+        {searchOpen && !selecting && (
           <>
             <SearchField
               value={query}
@@ -314,6 +434,11 @@ export function ConversationListPane({
               filter={backendFilter}
               currentUsername={me?.username}
               activeId={activeId}
+              selecting={selecting}
+              selectedIds={selectedIds}
+              onToggleSelect={toggleSelect}
+              onEnterSelect={enterSelect}
+              onSelectAll={selectAllVisible}
             />
             <div ref={sentinel} className="h-8" />
             {isFetchingNextPage && (

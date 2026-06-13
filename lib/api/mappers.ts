@@ -79,17 +79,32 @@ export function mapThread(t: BackendThread): ThreadListItem {
   preview = preview.replace(/^GROUP-PLACEHOLDER:/, "").trim();
   if (!preview) preview = "<no message>";
 
+  // Forwarded / "with history" emails store the ORIGINAL message date in
+  // lastMessage.createdAt (often weeks/months old, parsed from the forwarded
+  // body server-side). Sorting the inbox purely by that buries a freshly-
+  // received forward at its original date — far down the list — so on web it
+  // looks like it "never arrived" (native sorts by a received/sortedDate and
+  // shows it on top). The thread's own createdAt is the receive time and never
+  // moves on metadata changes, so take whichever is later: normal threads keep
+  // their last-message time; forwards float up to when they actually landed.
+  const lastMsgMs = lm?.createdAt ? +new Date(lm.createdAt) : 0;
+  const threadMs = t.createdAt ? +new Date(t.createdAt) : 0;
+  const sortMs = Math.max(lastMsgMs, threadMs);
+
   return {
     id: t.threadId || t.topicId,
     topicId: t.topicId,
     subject: t.isEmail ? oneLine(t.subject) || undefined : undefined,
     participants,
     preview,
-    // Last-message time, NOT thread.updatedAt: the backend bumps updatedAt on
-    // every metadata change (bookmark/silent/read via mongoose timestamps), which
-    // must not reorder the inbox. Fall back to updatedAt only when there's no
-    // message yet. (bumpThread sets this to "now" for optimistic sends.)
-    updatedAt: lm?.createdAt || t.updatedAt || new Date(0).toISOString(),
+    // Last-message time (or receive time for forwards — see sortMs above), NOT
+    // thread.updatedAt: the backend bumps updatedAt on every metadata change
+    // (bookmark/silent/read via mongoose timestamps), which must not reorder the
+    // inbox. Fall back to updatedAt only when there's no date at all.
+    // (bumpThread sets this to "now" for optimistic sends.)
+    updatedAt: sortMs
+      ? new Date(sortMs).toISOString()
+      : t.updatedAt || new Date(0).toISOString(),
     isEmail: Boolean(t.isEmail),
     isGroup: Boolean(t.isGroup),
     groupName,

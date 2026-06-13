@@ -18,11 +18,17 @@ import { UserAvatar } from '@/components/mail/UserAvatar';
 import { SearchField } from '@/components/ui/SearchField';
 import { IconButton } from '@/components/ui/IconButton';
 import { useContacts, type Contact } from '@/lib/api/contacts';
-import { useChatThreads } from '@/lib/api/threads';
-import { useComposeModal } from '@/lib/compose-modal';
+import { useAllThreadsMeta, useInboxThreads } from '@/lib/api/threads';
 import { useSession } from '@/lib/api/account';
 import { placeCall } from '@/lib/calls/controller';
-import { chatHref, findDmThread } from '@/lib/chat-href';
+import {
+  chatHref,
+  findDmThread,
+  findEmailThread,
+  mailHref,
+  newChatHref,
+  newMailHref,
+} from '@/lib/chat-href';
 import { localPart, MAIL_DOMAIN } from '@/lib/identity';
 import { useLastSeen, useOnline, usePresenceFor } from '@/lib/realtime/hooks';
 import { useRealtime } from '@/lib/realtime/store';
@@ -152,14 +158,19 @@ function ContactRow({
 export function ContactsPane() {
   const { data, isLoading, isError, refetch } = useContacts();
   const { data: me } = useSession();
-  const { data: chats } = useChatThreads();
+  // Thread resolution source for tapping a contact. `allThreads` is the FULL
+  // set (every conversation, even old ones not on inbox page-1) so we find the
+  // existing thread with its history instead of opening a blank compose; until
+  // it loads we fall back to the lighter inbox page-1.
+  const { data: allThreads } = useAllThreadsMeta();
+  const { data: inbox } = useInboxThreads();
+  const resolveSource = allThreads ?? inbox;
   const router = useRouter();
   const myUserId = me?.userId;
   const [query, setQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [subscreen, setSubscreen] = useState<Subscreen>('chat');
   const [menuOpen, setMenuOpen] = useState(false);
-  const openCompose = useComposeModal((s) => s.open);
 
   // Search collapses behind the icon (same as the thread/call sections) so the
   // header keeps an identical height across tabs — no jump on section switch.
@@ -230,17 +241,17 @@ export function ContactsPane() {
   }, [pool, data, query, online, lastSeen, subscreen]);
 
   function startChat(c: Contact) {
-    // Native FriendsView: open the existing 1:1 chat if there is one; only fall
-    // back to chat-compose when no thread exists yet.
-    const dm = findDmThread(chats, c.address);
-    if (dm) {
-      router.push(chatHref(dm, me?.username));
-      return;
-    }
-    openCompose({ isEmail: false, to: c.address });
+    // Native FriendsView: open the existing 1:1 chat if there is one; otherwise
+    // open a fresh conversation view (NOT the compose modal) with the recipient
+    // prefilled — the first send creates the thread.
+    const dm = findDmThread(resolveSource, c.address);
+    router.push(dm ? chatHref(dm, me?.username) : newChatHref(c.address, c.name));
   }
   function startEmail(c: Contact) {
-    openCompose({ isEmail: true, to: c.address });
+    // Same tap-routing for email: existing thread → open it; none → fresh
+    // email conversation view with the recipient prefilled.
+    const thread = findEmailThread(resolveSource, c.address);
+    router.push(thread ? mailHref(thread) : newMailHref(c.address));
   }
   function callContact(c: Contact, isVideo: boolean) {
     if (!myUserId) {

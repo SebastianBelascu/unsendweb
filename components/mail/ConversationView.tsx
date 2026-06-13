@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   memo,
   useCallback,
@@ -45,6 +46,7 @@ import { VoiceMessage } from './VoiceMessage';
 import { CallButtons } from '@/components/calls/CallButtons';
 import { EmailBody } from './EmailBody';
 import { MessageComposer, type ComposerRecipients } from './MessageComposer';
+import { threadUrlFromResponse } from './Composer';
 import { MentionText } from './MentionText';
 import { LinkPreviewCard } from './LinkPreview';
 import { buildMentions, type MentionParticipant } from '@/lib/mentions';
@@ -85,6 +87,7 @@ import {
 } from '@/lib/api/messages';
 import { ApiError } from '@/lib/api/http';
 import { useThreadParticipants } from '@/lib/api/threads';
+import { NEW_THREAD_ID } from '@/lib/chat-href';
 import { markThreadReadInCache } from '@/lib/realtime/threadCache';
 import { useComposeModal } from '@/lib/compose-modal';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -444,6 +447,84 @@ function StatusTicks({ message }: { message: MailMessage }) {
   return <Check className="h-3.5 w-3.5" aria-label="Sent" />;
 }
 
+/**
+ * In-place message editor (iMessage / native parity): the bubble turns into an
+ * editable field flanked by a grey ✕ (cancel) on the left and an accent-coloured
+ * ✓ (save) on the right. Auto-focuses with the caret at the end; Enter saves,
+ * Shift+Enter inserts a newline, Esc cancels.
+ */
+function InlineMessageEditor({
+  initialText,
+  isEmail,
+  onSave,
+  onCancel,
+}: {
+  initialText: string;
+  isEmail: boolean;
+  onSave: (text: string) => void;
+  onCancel: () => void;
+}) {
+  const [draft, setDraft] = useState(initialText);
+  const ref = useRef<HTMLTextAreaElement>(null);
+  const autosize = (el: HTMLTextAreaElement | null) => {
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  };
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+    autosize(el);
+  }, []);
+  const accent = isEmail ? 'bg-email' : 'bg-chat';
+  return (
+    <div className="flex w-full items-center gap-2">
+      <button
+        type="button"
+        onClick={onCancel}
+        aria-label="Cancel edit"
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-3 text-faint transition-colors hover:text-ink"
+      >
+        <X className="h-4 w-4" />
+      </button>
+      <div className={cn('min-w-0 flex-1 rounded-bubble px-3.5 py-2', accent)}>
+        <textarea
+          ref={ref}
+          value={draft}
+          rows={1}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            autosize(e.target);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              onSave(draft);
+            } else if (e.key === 'Escape') {
+              e.preventDefault();
+              onCancel();
+            }
+          }}
+          className="block w-full resize-none bg-transparent text-body leading-snug text-white outline-none"
+        />
+      </div>
+      <button
+        type="button"
+        onClick={() => onSave(draft)}
+        aria-label="Save edit"
+        className={cn(
+          'flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white transition-opacity hover:opacity-90',
+          accent,
+        )}
+      >
+        <Check className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
+
 function Bubble({
   message,
   replied,
@@ -461,6 +542,9 @@ function Bubble({
   menuOpen,
   selectMode,
   selected,
+  isEditing,
+  onSaveEdit,
+  onCancelEdit,
   onToggleSelect,
   onToggleTime,
   onSeeOriginal,
@@ -489,6 +573,9 @@ function Bubble({
   menuOpen: boolean;
   selectMode: boolean;
   selected: boolean;
+  isEditing: boolean;
+  onSaveEdit: (text: string) => void;
+  onCancelEdit: () => void;
   onToggleSelect: () => void;
   onToggleTime: () => void;
   onSeeOriginal: (m: MailMessage) => void;
@@ -776,6 +863,14 @@ function Bubble({
               </button>
             </div>
           )}
+          {isEditing ? (
+            <InlineMessageEditor
+              initialText={message.text ?? ''}
+              isEmail={isEmail}
+              onSave={onSaveEdit}
+              onCancel={onCancelEdit}
+            />
+          ) : (
           <div
             className={cn(
               'flex items-end gap-2',
@@ -992,6 +1087,7 @@ function Bubble({
               </div>
             </div>
           </div>
+          )}
         </div>
       </SwipeToReply>
 
@@ -1174,12 +1270,17 @@ export function ConversationView({
   recipientAddress?: string;
   isGroup?: boolean;
 }) {
+  // Brand-new conversation (tapped a contact with no existing thread): there's
+  // no thread to fetch yet — open empty with the recipient prefilled; the first
+  // send creates the real thread and rebinds the URL (see doSend below).
+  const isNew = id === NEW_THREAD_ID;
+  const router = useRouter();
   const {
     data: fetched = [],
     isLoading,
     isError,
     error,
-  } = useThreadMessages(id);
+  } = useThreadMessages(isNew ? '' : id);
   const { data: me } = useSession();
   const username = me?.username;
   const myUserId = me?.userId;
@@ -1541,10 +1642,15 @@ export function ConversationView({
       return groupMembers
         .filter((m) => m.address && m.address.toLowerCase() !== self)
         .map((m) => ({ name: m.name, address: m.address as string }));
-    if (isEmail)
-      return emailParticipants
+    if (isEmail) {
+      const parts = emailParticipants
         .filter((p) => p.address)
         .map((p) => ({ name: p.name, address: p.address as string }));
+      // New email (no messages yet) has no participants to borrow — fall back
+      // to the recipient passed in the URL so the composer can send.
+      if (parts.length) return parts;
+      return recipientAddress ? [{ address: recipientAddress }] : [];
+    }
     return recipient ? [{ address: recipient }] : [];
   }, [
     isGroup,
@@ -1552,6 +1658,7 @@ export function ConversationView({
     groupMembers,
     emailParticipants,
     recipient,
+    recipientAddress,
     currentUserAddress,
   ]);
   const composerInitialSubject =
@@ -1590,7 +1697,7 @@ export function ConversationView({
       cur.map((m) => (m.id === localId ? { ...m, status: 'sending' } : m)),
     );
     sendMsg.mutate(payload, {
-      onSuccess: () => {
+      onSuccess: (data) => {
         pendingPayloads.current.delete(localId);
         // Clear the "sending" tick; the refId dedup drops the optimistic copy
         // the instant the server echo (with the same refId) lands — no flash,
@@ -1598,6 +1705,13 @@ export function ConversationView({
         setSent((cur) =>
           cur.map((m) => (m.id === localId ? { ...m, status: undefined } : m)),
         );
+        // First send of a new conversation created the real thread — replace
+        // the /…/new URL with the live one so the view binds to it (subsequent
+        // sends target it, refresh/back work, and the message list loads).
+        if (isNew) {
+          const url = threadUrlFromResponse(data, payload.toList ?? []);
+          if (url) router.replace(url);
+        }
       },
       onError: () =>
         setSent((cur) =>
@@ -1606,27 +1720,36 @@ export function ConversationView({
     });
   }
 
+  // Save an in-place bubble edit (the iMessage-style ✓). Mirrors native
+  // ThreadDetailViewModel.saveEdit: empty text is blocked (use Delete instead),
+  // and the 15-min window is re-checked since it can lapse while the inline
+  // editor is open.
+  function saveEdit(messageId: string, rawText: string) {
+    const text = rawText.trim();
+    if (!editing || editing.id !== messageId) return;
+    if (!text) {
+      toast("Message can't be empty — delete it instead");
+      return;
+    }
+    if (editing.date && !withinEditWindow(editing.date)) {
+      setEditing(null);
+      toast('Edit window expired');
+      return;
+    }
+    if (text !== (editing.text ?? '').trim()) {
+      msgActions.edit.mutate({ messageId, text });
+    }
+    setEditing(null);
+  }
+
   // Called by MessageComposer with the trimmed text (+ the "+" panel's edited
-  // recipients/subject when present). Edit → PATCH; else send.
+  // recipients/subject when present). Editing is handled in-place on the bubble
+  // (see saveEdit), so the composer only ever sends.
   function onSubmit(
     text: string,
     recipients?: ComposerRecipients,
     withUrlPreview?: boolean,
   ) {
-    if (editing) {
-      if (!text) return;
-      // The 15-min window can lapse while the inline editor is open (native
-      // throws .windowExpired on save) — re-check before committing the PATCH.
-      if (editing.date && !withinEditWindow(editing.date)) {
-        setEditing(null);
-        toast('Edit window expired');
-        return;
-      }
-      msgActions.edit.mutate({ messageId: editing.id, text });
-      setEditing(null);
-      return;
-    }
-
     const dtos = att.readyDtos();
     if (!text && dtos.length === 0) return;
     const replyHeaderId = replyingTo?.headerId;
@@ -1690,8 +1813,10 @@ export function ConversationView({
       isEmail,
       isChat: !isEmail,
       subject: subjectToSend,
-      topicId,
-      threadId: id,
+      // A brand-new conversation has no thread/topic yet — omit them so the
+      // backend creates a fresh thread (sending id="new" would be a bogus key).
+      topicId: isNew ? undefined : topicId,
+      threadId: isNew ? undefined : id,
       toList,
       ccList,
       bccList,
@@ -2140,6 +2265,9 @@ export function ConversationView({
                       menuOpen={menuOpenId === m.id}
                       selectMode={selectMode}
                       selected={selectedIds.has(m.id)}
+                      isEditing={editing?.id === m.id}
+                      onSaveEdit={(text) => saveEdit(m.id, text)}
+                      onCancelEdit={() => setEditing(null)}
                       onToggleSelect={() => toggleSelect(m.id)}
                       onToggleTime={() =>
                         setShownTimeId((cur) => (cur === m.id ? null : m.id))
@@ -2220,7 +2348,7 @@ export function ConversationView({
             threadId={id}
             isEmail={isEmail}
             att={att}
-            editing={editing}
+            editing={null}
             replyingTo={replyingTo}
             initialTo={composerInitialTo}
             initialSubject={composerInitialSubject}

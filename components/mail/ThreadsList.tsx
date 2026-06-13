@@ -10,6 +10,8 @@ export function ThreadsList({
   selecting = false,
   selectedIds,
   onToggleSelect,
+  onEnterSelect,
+  onSelectAll,
 }: {
   threads: ThreadListItem[];
   emptyLabel: string;
@@ -19,6 +21,8 @@ export function ThreadsList({
   selecting?: boolean;
   selectedIds?: Set<string>;
   onToggleSelect?: (id: string) => void;
+  onEnterSelect?: (id: string) => void;
+  onSelectAll?: () => void;
 }) {
   if (threads.length === 0) {
     return (
@@ -40,6 +44,8 @@ export function ThreadsList({
             selecting={selecting}
             selected={selectedIds?.has(t.id)}
             onToggleSelect={() => onToggleSelect?.(t.id)}
+            onEnterSelect={onEnterSelect}
+            onSelectAll={onSelectAll}
           />
         </li>
       ))}

@@ -8,10 +8,10 @@ export default async function ThreadPage({
   searchParams,
 }: {
   params: Promise<{ topicId: string }>;
-  searchParams: Promise<{ s?: string; tid?: string }>;
+  searchParams: Promise<{ s?: string; tid?: string; to?: string }>;
 }) {
   const { topicId } = await params;
-  const { s, tid } = await searchParams;
+  const { s, tid, to } = await searchParams;
   return (
     <ConversationView
       id={topicId}
@@ -19,6 +19,7 @@ export default async function ThreadPage({
       title={s && s.trim() ? s : "(no subject)"}
       subject={s}
       topicId={tid}
+      recipientAddress={to}
     />
   );
 }

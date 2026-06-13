@@ -3,13 +3,18 @@ import { apiSend } from "./http";
 const KEY = "unsend.web.deviceId";
 
 /** Convert a URL-safe base64 string (VAPID public key) to a Uint8Array. */
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
+function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding)
     .replace(/-/g, "+")
     .replace(/_/g, "/");
   const raw = atob(base64);
-  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+  // Build on an explicit ArrayBuffer so the result is a BufferSource that
+  // PushManager.subscribe's applicationServerKey accepts (a plain Uint8Array
+  // can be backed by SharedArrayBuffer in the lib types, which it rejects).
+  const output = new Uint8Array(new ArrayBuffer(raw.length));
+  for (let i = 0; i < raw.length; i++) output[i] = raw.charCodeAt(i);
+  return output;
 }
 
 /**
